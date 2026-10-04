@@ -36,10 +36,12 @@
         </activity>
         <!-- Receives habitd://auth?code=... at the end of the sign-in. -->
         <activity
-            android:name="com.linusu.flutter_web_auth_2.CallbackActivity"
+            android:name=".AuthCallbackActivity"
             android:exported="true"
-            android:taskAffinity="">
-            <intent-filter android:label="flutter_web_auth_2">
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.BROWSABLE"/>

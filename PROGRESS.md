@@ -31,9 +31,9 @@ for a release binary. Without it the server still compiles and serves only the A
 | 1 | Server foundation | Done |
 | 2 | Habits and entries | Done |
 | 3 | Web app | Done (see notes) |
-| 4 | Android app | Code complete, not yet run on a device |
-| 5 | Android widget | Code complete, not yet run on a device |
-| 6 | NFC | Code complete, not yet run on a device |
+| 4 | Android app | Done, run on a phone (debug build) |
+| 5 | Android widget | Done, run on a phone (debug build) |
+| 6 | NFC | Done, run on a phone (debug build) |
 
 ### 1–2. Server (`server/`)
 
@@ -75,9 +75,12 @@ logic and NFC scans, as listed in spec section 11.
 
 Still to do:
 
-* Run it on a phone: sign-in through a real OIDC provider, the widget
-  (tap, offline tap, day change), writing and scanning a tag. None of this has
-  been exercised on a device yet; only the debug APK build and the unit tests.
+* Tried on a POCO X3 GT (Android 13, Firefox as browser) against a local
+  server reached with `adb reverse tcp:8787 tcp:8787`: sign-in, Today, the
+  widget, taps made offline and delivered after reconnecting, writing and
+  scanning a tag. Not tried yet: day and week change on the widget, a revoked
+  token, a release build.
+* UI polish: the screens are plain default Material.
 * Release signing (the release build type still uses the debug key).
 * App icon (still the Flutter default).
 
@@ -102,5 +105,7 @@ Still to do:
   weekly total when the cache is rebuilt (the amount depends on a value only
   the server has); unsent increments are. The next refresh corrects it.
 * The NFC debounce timestamp is kept in memory, not on disk.
+* The sign-in redirect is received by our own `AuthCallbackActivity`, not the
+  one from `flutter_web_auth_2`, which left the browser tab open with Firefox.
 * Debug builds allow plain HTTP so the app can talk to a development server.
 * The Nix shell's NDK is used for every Gradle module (`app/android/build.gradle.kts`).
