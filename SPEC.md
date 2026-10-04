@@ -437,7 +437,7 @@ A tag identifies a habit; the app does the logging with its own device token. Th
 4. Flushes the outbox and finishes.
 
 * It works offline, exactly like a widget tap.
-* A boolean scan never unchecks, so scanning twice is harmless. For counters, a second scan of the same habit within 5 seconds is ignored.
+* A boolean scan never unchecks, so scanning twice is harmless. For counters, a second scan of the same habit within 1 second is ignored.
 * If the habit is not in the cache (archived, deleted, or not yet fetched), the app refreshes once and otherwise shows "Unknown habit".
 * If the user is signed out, the scan opens the sign-in screen.
 * Android only reads tags while the phone is unlocked.

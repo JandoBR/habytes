@@ -45,7 +45,7 @@ sealed interface ScanResult {
     data object SignedOut : ScanResult
 }
 
-const val SCAN_DEBOUNCE_MS = 5_000L
+const val SCAN_DEBOUNCE_MS = 1_000L
 
 /**
  * Taps, NFC scans and the exchange with the server. Changes are applied to

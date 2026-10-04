@@ -240,15 +240,15 @@ class HabitSyncTest {
     }
 
     @Test
-    fun `a repeated NFC scan of a counter is ignored for five seconds`() {
+    fun `a repeated NFC scan of a counter is ignored for a second`() {
         store.cache = cache(habit("a", Kind.COUNTER, goal = 8), habit("b", Kind.COUNTER, goal = 8))
 
         assertEquals(1, (sync.scan("a") as ScanResult.Logged).habit.value)
-        now += 4_999
+        now += SCAN_DEBOUNCE_MS - 1
         assertEquals(1, (sync.scan("a") as ScanResult.Ignored).habit.value)
         // Another habit's tag is not a repeat.
         assertTrue(sync.scan("b") is ScanResult.Logged)
-        now += 5_000
+        now += SCAN_DEBOUNCE_MS
         assertEquals(2, (sync.scan("a") as ScanResult.Logged).habit.value)
         assertEquals(3, store.outbox.size)
     }
