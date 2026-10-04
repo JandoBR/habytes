@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Builds the web app and the habitd image, and pushes it to the registry.
+# Run inside the dev shell (`nix develop`), with Docker available.
+#
+#   scripts/publish-image            # registry.example.com/habitd:latest and :<commit>
+#   IMAGE=example.com/habitd scripts/publish-image
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+image="${IMAGE:-registry.example.com/habitd}"
+commit="$(git rev-parse --short HEAD)"
+
+(cd app && flutter build web --release)
+docker build -t "$image:latest" -t "$image:$commit" .
+docker push "$image:latest"
+docker push "$image:$commit"
+echo "Pushed $image:latest and $image:$commit"

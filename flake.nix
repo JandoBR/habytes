@@ -59,6 +59,11 @@
             flutter config --android-sdk "$ANDROID_HOME" > /dev/null 2>&1
           '';
         };
+
+        # Just enough to build the web app, for CI: no Android SDK to download.
+        devShells.web = pkgs.mkShell {
+          buildInputs = [ pkgs.flutter ];
+        };
       }
     );
 }

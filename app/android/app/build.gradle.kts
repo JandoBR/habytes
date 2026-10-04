@@ -28,11 +28,25 @@ android {
         versionName = flutter.versionName
     }
 
+    // Release builds are signed with the keystore named by these variables (CI
+    // sets them from secrets). Without them the debug key is used, which is
+    // different on every machine, so such builds cannot update one another.
+    val keystoreFile = System.getenv("ANDROID_KEYSTORE_FILE")
+    signingConfigs {
+        if (!keystoreFile.isNullOrEmpty()) {
+            create("release") {
+                storeFile = file(keystoreFile)
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig =
+                signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
 }

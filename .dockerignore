@@ -1,0 +1,11 @@
+# Only the server sources and the built web app go into the image.
+*
+!server
+server/target
+server/config.toml
+server/*.db*
+!app
+app/*
+!app/build
+app/build/*
+!app/build/web

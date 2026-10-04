@@ -1,0 +1,78 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# The runner has Nix installed but not on PATH. NIX_CONFIG avoids the `nixbld`
+# group and the sandbox, which the runner does not have.
+env:
+  IMAGE: registry.example.com/habitd
+  NIX_CONFIG: |
+    build-users-group =
+    sandbox = false
+    experimental-features = nix-command flakes
+
+jobs:
+  # habitd with the web app embedded, pushed to the registry.
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the web app
+        run: |
+          export PATH="/nix/var/nix/profiles/default/bin:$HOME/.nix-profile/bin:$PATH"
+          nix develop .#web --command bash -c 'cd app && flutter build web --release'
+
+      - name: Build the image
+        run: |
+          docker build \
+            -t "$IMAGE:${{ github.sha }}" \
+            -t "$IMAGE:latest" \
+            .
+
+      - name: Push the image
+        run: |
+          docker push "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:latest"
+
+  # The Android app, as a downloadable artifact.
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+          else
+            echo "::warning::No ANDROID_KEYSTORE_BASE64 secret: signing with a throwaway debug key, so this APK cannot update an installed one."
+          fi
+
+      - name: Build and test
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          export PATH="/nix/var/nix/profiles/default/bin:$HOME/.nix-profile/bin:$PATH"
+          nix develop --command bash -c '
+            set -euo pipefail
+            cd app
+            flutter build apk --release
+            cd android
+            ./nix-gradlew :app:testDebugUnitTest
+          '
+
+      - name: Upload the APK
+        uses: actions/upload-artifact@v3
+        with:
+          name: habytes-apk
+          path: app/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
