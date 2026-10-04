@@ -2,6 +2,8 @@ plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+    // The widget is written with Jetpack Glance, which uses the Compose compiler.
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
@@ -15,11 +17,8 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "uk.pixxula.habytes"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        minSdk = 26
         targetSdk = flutter.targetSdkVersion
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
         // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)
@@ -46,4 +45,14 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    implementation("androidx.glance:glance-appwidget:1.1.1")
+    implementation("androidx.glance:glance-material3:1.1.1")
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
+
+    testImplementation("junit:junit:4.13.2")
+    // The Android SDK's org.json is only a stub in unit tests.
+    testImplementation("org.json:json:20240303")
 }

@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../api/models.dart';
+import '../platform/native.dart';
+import '../platform/nfc.dart';
 import '../state/auth.dart';
 import '../state/data.dart';
 import '../widgets/common.dart';
@@ -149,6 +151,12 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
     if (confirmed) await _run(() => ref.read(apiProvider).deleteHabit(widget.habitId!));
   }
 
+  Future<void> _writeTag() async {
+    if (await writeHabitTag(context, _habit!) && mounted) {
+      showMessage(context, 'Tag written. Tap it with the phone to log this habit.');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final Widget body;
@@ -268,6 +276,14 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
             onPressed: _busy ? null : _save,
             child: Text(_isNew ? 'Create habit' : 'Save'),
           ),
+          if (_habit != null && Native.available) ...[
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _busy ? null : _writeTag,
+              icon: const Icon(Icons.nfc),
+              label: const Text('Write NFC tag'),
+            ),
+          ],
         ],
       ),
     ),

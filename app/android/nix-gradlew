@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Runs Gradle directly inside the Nix dev shell, the way `flutter build` does:
+# the Flutter Gradle plugin lives in the read-only Nix store, so its cache has
+# to go elsewhere, and the aapt2 Gradle would download cannot run on NixOS.
+#
+#   ./nix-gradlew :app:testDebugUnitTest
+set -euo pipefail
+cd "$(dirname "$0")"
+
+cache="${XDG_CACHE_HOME:-$HOME/.cache}/habytes-gradle"
+aapt2="$(ls -d "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -n 1)"
+
+exec ./gradlew \
+  --project-cache-dir="$cache/project" \
+  -Pkotlin.project.persistent.dir="$cache/kotlin" \
+  -Pandroid.aapt2FromMavenOverride="$aapt2" \
+  "$@"

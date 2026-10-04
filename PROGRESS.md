@@ -16,7 +16,10 @@ Flutter, JDK 17 and the Android SDK.
 | Web app | `cd app && flutter build web --release` (then build the server to embed it) |
 | App analysis | `cd app && flutter analyze` |
 | Android APK | `cd app && flutter build apk --debug` |
-| Kotlin unit tests | `cd app/android && ./gradlew :app:testDebugUnitTest` |
+| Kotlin unit tests | `cd app/android && ./nix-gradlew :app:testDebugUnitTest` |
+
+Use `app/android/nix-gradlew` instead of `./gradlew` when calling Gradle
+directly; it passes the options `flutter build` passes on NixOS.
 
 The server embeds `app/build/web` at compile time, so build the web app first
 for a release binary. Without it the server still compiles and serves only the API.
@@ -28,9 +31,9 @@ for a release binary. Without it the server still compiles and serves only the A
 | 1 | Server foundation | Done |
 | 2 | Habits and entries | Done |
 | 3 | Web app | Done (see notes) |
-| 4 | Android app | Not started |
-| 5 | Android widget | Not started |
-| 6 | NFC | Not started |
+| 4 | Android app | Code complete, not yet run on a device |
+| 5 | Android widget | Code complete, not yet run on a device |
+| 6 | NFC | Code complete, not yet run on a device |
 
 ### 1–2. Server (`server/`)
 
@@ -51,6 +54,33 @@ Notes:
   locally running server. The screens have not been clicked through in a
   browser against a real OIDC provider yet.
 
+### 4–6. Android (`app/android/app/src/main/kotlin/uk/pixxula/habytes/`)
+
+| File | What it is |
+| --- | --- |
+| `Model.kt` | Cache, habits and outbox operations: optimistic apply, day and week change, due-day filtering. Pure Kotlin. |
+| `HabitSync.kt` | Taps, NFC scans, and the flush + refresh exchange with the server. Pure Kotlin behind `StateStore` and `Api`. |
+| `Json.kt`, `Store.kt`, `HttpApi.kt` | Serialisation, the SharedPreferences store (excluded from backups), `HttpURLConnection` client. |
+| `Widgets.kt` | Process-wide glue: the shared `HabitSync`, redraws, WorkManager jobs (`SyncWorker`). |
+| `HabitWidget.kt` | The Glance widget, its tap action and its receiver. |
+| `NfcScanActivity.kt` | UI-less activity for `habitd://habit/<id>` tags. |
+| `MainActivity.kt` | The `habitd/native` method channel. |
+
+Dart side: `lib/platform/native.dart` (channel), `lib/platform/nfc.dart` (tag
+writing, from the habit editor), `lib/screens/server.dart`, `sign_in.dart`,
+`device.dart` (the spec's Home screen).
+
+Kotlin unit tests (`app/android/app/src/test/`) cover the cache and outbox
+logic and NFC scans, as listed in spec section 11.
+
+Still to do:
+
+* Run it on a phone: sign-in through a real OIDC provider, the widget
+  (tap, offline tap, day change), writing and scanning a tag. None of this has
+  been exercised on a device yet; only the debug APK build and the unit tests.
+* Release signing (the release build type still uses the debug key).
+* App icon (still the Flutter default).
+
 ## Decisions not in the spec
 
 * Android application ID and Kotlin package: `uk.pixxula.habytes`; the app is
@@ -61,3 +91,16 @@ Notes:
   for the device's time zone and name (`getTimeZone`, `getDeviceName`).
 * A new account's time zone is set from the device on first sign-in only while
   it has no habits.
+* A widget tap does not send the request itself: it queues the operation and
+  starts a WorkManager job that needs a network connection, which flushes right
+  away when online and retries with backoff otherwise. A tap handler only gets
+  a few seconds to run, which a slow request could exceed.
+* During a flush, every 4xx answer other than 401, 408 and 429 drops the
+  operation (the spec names 404 and 422); anything else that can never succeed
+  would block the queue forever.
+* An unsent "set" from an earlier day of the week is not counted towards a
+  weekly total when the cache is rebuilt (the amount depends on a value only
+  the server has); unsent increments are. The next refresh corrects it.
+* The NFC debounce timestamp is kept in memory, not on disk.
+* Debug builds allow plain HTTP so the app can talk to a development server.
+* The Nix shell's NDK is used for every Gradle module (`app/android/build.gradle.kts`).
