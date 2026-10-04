@@ -10,6 +10,7 @@ pub mod ratelimit;
 pub mod schedule;
 pub mod state;
 pub mod util;
+pub mod web;
 
 use axum::{Router, extract::Request};
 use tower_http::trace::TraceLayer;
@@ -21,6 +22,7 @@ pub fn router(state: AppState) -> Router {
         .nest("/api/v1", api::router())
         .merge(auth::router(state.clone()))
         .merge(hooks::router())
+        .fallback(web::fallback)
         .layer(TraceLayer::new_for_http().make_span_with(|request: &Request| {
             tracing::info_span!("request", method = %request.method(), path = loggable_path(request.uri().path()))
         }))

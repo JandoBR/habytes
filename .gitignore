@@ -1,6 +1,3 @@
-# Reference project the Nix/Android setup was taken from (its own repository)
-/Proyecto1-Movil/
-
 # Nix
 /result
 .direnv/

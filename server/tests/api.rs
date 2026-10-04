@@ -931,3 +931,33 @@ async fn webhooks_are_rate_limited_per_secret() {
     assert_eq!(error_code(&body), "rate_limited");
     assert_eq!(hook(&app, "POST", &url_b).await.0, StatusCode::OK);
 }
+
+#[tokio::test]
+async fn app_pages_need_a_session() {
+    let app = TestApp::new().await;
+    let page = |cookie: Option<&str>| {
+        let mut request = Request::get("/habits/new?x=1");
+        if let Some(cookie) = cookie {
+            request = request.header(header::COOKIE, format!("habitd_session={cookie}"));
+        }
+        request.body(Body::empty()).unwrap()
+    };
+
+    // An unauthenticated visit goes to the login, and comes back to the same page.
+    for cookie in [None, Some("hbt_made-up")] {
+        let response = app.send(page(cookie)).await;
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            response.headers()[header::LOCATION],
+            "/auth/login?redirect=%2Fhabits%2Fnew%3Fx%3D1"
+        );
+    }
+    let session = app.session("alice").await;
+    assert_ne!(app.send(page(Some(&session))).await.status(), StatusCode::SEE_OTHER);
+
+    // The API's own prefixes never fall through to the app.
+    for path in ["/auth/nope", "/api/nope", "/hook/a/b"] {
+        let response = app.send(Request::get(path).body(Body::empty()).unwrap()).await;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
+    }
+}
