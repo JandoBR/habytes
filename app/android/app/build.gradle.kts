@@ -7,11 +7,7 @@ plugins {
 android {
     namespace = "uk.pixxula.habytes"
     compileSdk = flutter.compileSdkVersion
-    // The Nix dev shell provides exactly one NDK and Gradle cannot download
-    // another into the read-only store, so use whichever one is there.
-    val nixNdkVersion = System.getenv("ANDROID_HOME")
-        ?.let { file("$it/ndk").listFiles()?.firstOrNull { ndk -> ndk.isDirectory }?.name }
-    ndkVersion = nixNdkVersion ?: flutter.ndkVersion
+    ndkVersion = flutter.ndkVersion
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

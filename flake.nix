@@ -23,6 +23,8 @@
           abiVersions = [ "x86_64" "arm64-v8a" ];
 
           includeNDK = true;
+          # The version the Android Gradle Plugin asks for when a plugin builds native code.
+          cmakeVersions = [ "3.22.1" ];
 
           includeSystemImages = false;
           includeEmulator = false;
