@@ -1,0 +1,22 @@
+# Reference project the Nix/Android setup was taken from (its own repository)
+/Proyecto1-Movil/
+
+# Nix
+/result
+.direnv/
+
+# Rust
+/server/target/
+
+# Runtime files
+*.db
+*.db-shm
+*.db-wal
+/config.toml
+/server/config.toml
+
+# Editors
+.idea/
+*.iml
+.vscode/
+.DS_Store
