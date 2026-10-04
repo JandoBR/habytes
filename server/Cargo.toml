@@ -1,0 +1,35 @@
+[package]
+name = "habitd"
+version = "0.1.0"
+edition = "2024"
+description = "Self-hostable habit tracker server"
+
+[features]
+default = ["embed-web"]
+embed-web = []
+
+[dependencies]
+anyhow = "1.0.104"
+axum = "0.8.9"
+base64 = "0.23.1"
+chrono = "0.4.45"
+chrono-tz = "0.10.4"
+figment = { version = "0.10.19", features = ["toml", "env"] }
+openidconnect = "4.0.1"
+rand = "0.10.3"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+sha2 = "0.11.0"
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros", "uuid"] }
+thiserror = "2.0.21"
+tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "signal", "net", "time", "sync"] }
+tower-http = { version = "0.7.1", features = ["trace"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+url = "2.5.8"
+uuid = { version = "1.27.0", features = ["v7", "serde"] }
+
+[dev-dependencies]
+chrono-tz = "0.10.4"
+http-body-util = "0.1.5"
+tower = { version = "0.5.3", features = ["util"] }

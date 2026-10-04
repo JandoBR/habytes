@@ -1,0 +1,16 @@
+# Copy to config.toml. Every key can also be set from the environment:
+# HABITD_DATABASE_PATH, HABITD_PUBLIC_URL, HABITD_OIDC__CLIENT_SECRET, ...
+
+database_path = "habits.db"
+bind_address  = "0.0.0.0:8080"
+public_url    = "https://habits.example.com"
+
+# Set to true behind a reverse proxy that sets X-Forwarded-For, so the login
+# rate limit applies per client instead of per proxy.
+trust_forwarded_for = false
+
+[oidc]
+issuer        = "https://id.example.com"       # Pocket ID base URL
+client_id     = "..."                          # from the Pocket ID client
+client_secret = "..."                          # omit for a public client
+scopes        = ["openid", "profile", "email"]
