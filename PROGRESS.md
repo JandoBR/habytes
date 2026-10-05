@@ -81,7 +81,6 @@ Still to do:
   scanning a tag. Not tried yet: day and week change on the widget, a revoked
   token, a release build.
 * UI polish: the screens are plain default Material.
-* Release signing (the release build type still uses the debug key).
 * App icon (still the Flutter default).
 
 ## Build and deployment
@@ -95,6 +94,12 @@ Still to do:
     `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`
     and `ANDROID_KEY_PASSWORD`; without them it uses a throwaway debug key, and
     such an APK cannot update an installed one.
+* The release signing key is `~/.config/habytes/release.jks` on the dev
+  machine (alias `habytes`), with its password in `keystore.env` next to it.
+  The dev shell sources that file, so local `flutter build apk --release` uses
+  the same key as CI. A backup of both is in `shared/secrets.yaml` of
+  `nixos-config` (`HABYTES_KEYSTORE_*`). Losing the key means installed apps
+  can no longer be updated, only reinstalled.
 * `scripts/publish-image` does the same as the `image` job from a dev machine.
 * The server side is the `habitd` stack in `~/.nixos-config/server/stacks/`,
   served at `https://habits.example.com` through SWAG, data in

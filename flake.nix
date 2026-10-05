@@ -57,6 +57,11 @@
             export RUST_SRC_PATH="${pkgs.rustPlatform.rustLibSrc}"
 
             flutter config --android-sdk "$ANDROID_HOME" > /dev/null 2>&1
+
+            # The release signing key, where there is one (see PROGRESS.md).
+            if [ -f "$HOME/.config/habytes/keystore.env" ]; then
+              . "$HOME/.config/habytes/keystore.env"
+            fi
           '';
         };
 
