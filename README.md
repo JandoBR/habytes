@@ -33,7 +33,7 @@ server/     habitd (Rust, Axum, SQLx/SQLite)
 app/        Flutter app: web and Android
   android/  the widget, NFC scans and reminders, in Kotlin
 scripts/    publish-image, deploy, prune-images, publish-release, make-icons
-docs/       android-signing.md
+docs/       android-on-nixos.md, android-signing.md
 SPEC.md     what it is and how it works; PROGRESS.md: what has been verified, and why
 ```
 
@@ -64,6 +64,9 @@ cd ../server && cargo run -- config.toml
 
 The server embeds `app/build/web`, so build the web app first. Register
 `{public_url}/auth/callback` as the redirect URI at your provider.
+
+`docs/android-on-nixos.md` explains what it takes to build the Android app
+here and on the CI runner, and can be reused for another app.
 
 `PROGRESS.md` has the details: how the parts fit together, the decisions made
 along the way, and what has and has not been tried on a real phone.

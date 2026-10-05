@@ -77,7 +77,8 @@ link-hint extension now reaches every control.
 
 ## Working on it
 
-`README.md` has the everyday commands. Beyond those:
+`README.md` has the everyday commands, and `docs/android-on-nixos.md` the
+whole account of building for Android on NixOS and on the runner. In short:
 
 * Use `app/android/nix-gradlew` instead of `./gradlew` when calling Gradle
   directly; it passes the options `flutter build` passes on NixOS.
