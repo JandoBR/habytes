@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# Keeps the newest $KEEP commit-tagged habitd images (default 8) and deletes
+# the rest, from the registry and from the local Docker daemon. `latest` is
+# never touched. "Newest" follows the commit history, so run it in a full clone.
+#
+#   scripts/prune-images             # prune
+#   DRY_RUN=1 scripts/prune-images   # only say what would go
+#
+# Deleting from the registry needs REGISTRY_STORAGE_DELETE_ENABLED=true there;
+# the space is reclaimed by the garbage collection at the end.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+image="${IMAGE:-registry.example.com/habitd}"
+keep="${KEEP:-8}"
+registry="https://${image%%/*}"
+repo="${image#*/}"
+accept='Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json'
+
+digest_of() {
+  curl -fsSI -H "$accept" "$registry/v2/$repo/manifests/$1" \
+    | tr -d '\r' | awk 'tolower($1) == "docker-content-digest:" { print $2 }'
+}
+
+mapfile -t tags < <(curl -fsS "$registry/v2/$repo/tags/list" | jq -r '.tags // [] | .[]' | grep -v '^latest$' || true)
+
+# Newest first. A tag that is not a commit of this history sorts last.
+mapfile -t ordered < <(
+  for tag in "${tags[@]}"; do
+    time="$(git log -1 --format=%ct "$tag" 2>/dev/null || echo 0)"
+    echo "$time $tag"
+  done | sort -rn | awk '{ print $2 }'
+)
+
+kept=("${ordered[@]:0:keep}")
+old=("${ordered[@]:keep}")
+echo "${#ordered[@]} versions in $image, keeping ${#kept[@]}, removing ${#old[@]}"
+[ "${#old[@]}" -gt 0 ] || exit 0
+
+# The manifests behind a multi-platform image (an index): its per-platform
+# images and attestations. Empty for a plain image.
+children_of() {
+  curl -fsS -H "$accept" "$registry/v2/$repo/manifests/$1" | jq -r '.manifests // [] | .[].digest'
+}
+
+delete_manifest() {
+  curl -s -o /dev/null -w '%{http_code}' -X DELETE "$registry/v2/$repo/manifests/$1"
+}
+
+# Never delete a manifest that a kept tag also uses.
+declare -A protected
+for tag in latest "${kept[@]}"; do
+  digest="$(digest_of "$tag" || true)"
+  [ -n "$digest" ] || continue
+  protected["$digest"]=1
+  for child in $(children_of "$digest" || true); do protected["$child"]=1; done
+done
+
+removed=0
+for tag in "${old[@]}"; do
+  digest="$(digest_of "$tag" || true)"
+  if [ -z "$digest" ] || [ -n "${protected[$digest]:-}" ]; then
+    echo "skip $tag"
+    continue
+  fi
+  if [ -n "${DRY_RUN:-}" ]; then
+    echo "would remove $tag"
+    continue
+  fi
+  children="$(children_of "$digest" || true)"
+  status="$(delete_manifest "$digest")"
+  if [ "$status" = 202 ]; then
+    # Only this image's own manifests: other repositories are left alone.
+    for child in $children; do
+      [ -n "${protected[$child]:-}" ] || delete_manifest "$child" > /dev/null
+    done
+    echo "removed $tag"
+    removed=$((removed + 1))
+  else
+    echo "::warning::could not remove $tag from the registry (HTTP $status); is deleting enabled there?"
+  fi
+  docker image rm "$image:$tag" > /dev/null 2>&1 || true
+done
+
+# Deleting a manifest only unlinks it; this frees the layers nothing uses any more.
+if [ "$removed" -gt 0 ] && [ -n "${REGISTRY_CONTAINER-registry}" ]; then
+  docker exec "${REGISTRY_CONTAINER-registry}" \
+    registry garbage-collect /etc/distribution/config.yml > /dev/null \
+    && echo "registry garbage collected" \
+    || echo "::warning::registry garbage collection failed"
+fi

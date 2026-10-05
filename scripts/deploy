@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Puts the newest habitd image live: pulls it and recreates the container of
+# the server's `habitd` stack, exactly as its systemd unit would.
+#
+# Meant for the CI job, which runs in a container that has the host's Docker
+# socket but not the host's files. The stack's compose file and the secrets
+# env-file live on the host, so compose runs in a helper container that mounts
+# them (the compose file is a chain of NixOS symlinks ending in the store).
+set -euo pipefail
+
+stack="${STACK:-habitd}"
+dir="/etc/docker/stacks/$stack"
+# The official Docker CLI image, from a mirror without Docker Hub's pull limits.
+helper="${HELPER_IMAGE:-public.ecr.aws/docker/library/docker:cli}"
+
+docker run --rm \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v "$dir:$dir:ro" \
+  -v /etc/static:/etc/static:ro \
+  -v /nix/store:/nix/store:ro \
+  -v /run/secrets/rendered:/run/secrets/rendered:ro \
+  "$helper" \
+  compose -p "$stack" --project-directory "$dir" \
+    --env-file /run/secrets/rendered/compose.env \
+    -f "$dir/compose.yaml" \
+    up -d --pull always
+
+docker ps --filter "name=^${stack}$" --format '{{.Names}}: {{.Status}} ({{.Image}})'

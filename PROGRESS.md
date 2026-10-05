@@ -85,11 +85,15 @@ Still to do:
 
 ## Build and deployment
 
-* `.forgejo/workflows/build.yml` runs on every push to `main` (except
-  documentation-only pushes) and by hand:
-  * `image` builds the web app and habitd and pushes
-    `registry.example.com/habitd:latest` and `:<commit>`.
-  * `android` builds the release APK (artifact `habytes-apk`) and runs the
+* Two Forgejo workflows run on pushes to `main` and by hand:
+  * `image.yml`, when `server/`, `app/` (other than `app/android/`), the
+    Dockerfile or the flake changed: builds the web app and habitd, pushes
+    `registry.example.com/habitd:latest` and `:<commit>`, puts it live with
+    `scripts/deploy` (pull and recreate the server's `habitd` stack), then
+    `scripts/prune-images` keeps the newest 8 versions in the registry and on
+    the server and deletes the rest.
+  * `android.yml`, when `app/` or the flake changed: builds the release APK
+    (artifact `habytes-apk`) and runs the
     Kotlin unit tests. It signs with the keystore in the repository secrets
     `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`
     and `ANDROID_KEY_PASSWORD`; without them it uses a throwaway debug key, and
@@ -103,8 +107,9 @@ Still to do:
 * `scripts/publish-image` does the same as the `image` job from a dev machine.
 * The server side is the `habitd` stack in `~/.nixos-config/server/stacks/`,
   served at `https://habits.example.com` through SWAG, data in
-  `/srv/appdata/habitd`. The stack pins `:latest`, so a new image is picked up
-  with the stack updater (or `docker compose up -d --pull always`).
+  `/srv/appdata/habitd`. The CI runner has the host's Docker socket, which is
+  what lets the workflow deploy and prune; pruning also relies on the registry
+  stack allowing deletes (`REGISTRY_STORAGE_DELETE_ENABLED`).
 
 ## Decisions not in the spec
 

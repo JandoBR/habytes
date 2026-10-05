@@ -1,45 +1,24 @@
-name: Build
+name: Android
 
+# Builds the release APK as a downloadable artifact and runs the Kotlin tests.
 on:
   push:
     branches: [main]
-    paths-ignore: ["**.md"]
+    paths:
+      - "app/**"
+      - "flake.*"
+      - ".forgejo/workflows/android.yml"
   workflow_dispatch:
 
 # The runner has Nix installed but not on PATH. NIX_CONFIG avoids the `nixbld`
 # group and the sandbox, which the runner does not have.
 env:
-  IMAGE: registry.example.com/habitd
   NIX_CONFIG: |
     build-users-group =
     sandbox = false
     experimental-features = nix-command flakes
 
 jobs:
-  # habitd with the web app embedded, pushed to the registry.
-  image:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build the web app
-        run: |
-          export PATH="/nix/var/nix/profiles/default/bin:$HOME/.nix-profile/bin:$PATH"
-          nix develop .#web --command bash -c 'cd app && flutter build web --release'
-
-      - name: Build the image
-        run: |
-          docker build \
-            -t "$IMAGE:${{ github.sha }}" \
-            -t "$IMAGE:latest" \
-            .
-
-      - name: Push the image
-        run: |
-          docker push "$IMAGE:${{ github.sha }}"
-          docker push "$IMAGE:latest"
-
-  # The Android app, as a downloadable artifact.
   android:
     runs-on: ubuntu-latest
     steps:
