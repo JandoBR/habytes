@@ -53,17 +53,22 @@ class AppShell extends StatelessWidget {
     }
     return Scaffold(
       body: child,
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: index,
-        onDestinationSelected: go,
-        destinations: [
-          for (final d in _destinations)
-            NavigationDestination(
-              icon: Icon(d.icon),
-              selectedIcon: Icon(d.selected),
-              label: d.label,
-            ),
-        ],
+      bottomNavigationBar: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border(top: BorderSide(color: Theme.of(context).colorScheme.outline)),
+        ),
+        child: NavigationBar(
+          selectedIndex: index,
+          onDestinationSelected: go,
+          destinations: [
+            for (final d in _destinations)
+              NavigationDestination(
+                icon: Icon(d.icon),
+                selectedIcon: Icon(d.selected),
+                label: d.label,
+              ),
+          ],
+        ),
       ),
     );
   }

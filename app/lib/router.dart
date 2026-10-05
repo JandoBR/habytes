@@ -9,9 +9,14 @@ import 'screens/settings.dart';
 import 'screens/today.dart';
 import 'widgets/shell.dart';
 
+/// Where the browser was when the app started. The sign-in gate shown first
+/// resets the address bar to `/`, so the router has to be told where to open.
+String startLocation = '/';
+
 /// The signed-in part of the app.
 final routerProvider = Provider<GoRouter>((ref) {
   final router = GoRouter(
+    initialLocation: startLocation,
     routes: [
       ShellRoute(
         builder: (context, state, child) => AppShell(location: state.matchedLocation, child: child),

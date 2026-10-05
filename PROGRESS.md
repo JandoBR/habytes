@@ -81,7 +81,7 @@ Still to do:
   release build installs and starts against `https://habits.example.com`; its
   widget, background sync and NFC scan have not been re-checked. Not tried at
   all yet: day and week change on the widget, a revoked token.
-* UI polish: the screens are plain default Material.
+* The widget still uses the system's default colours, not the app's palette.
 * App icon (still the Flutter default).
 
 ## Build and deployment
@@ -111,6 +111,16 @@ Still to do:
   `/srv/appdata/habitd`. The CI runner has the host's Docker socket, which is
   what lets the workflow deploy and prune; pruning also relies on the registry
   stack allowing deletes (`REGISTRY_STORAGE_DELETE_ENABLED`).
+
+## Look
+
+`app/lib/theme.dart` holds the whole look: flat ink on paper, hairlines
+instead of shadows, and one loud colour used only as a highlighter over what is
+done. Three palettes are defined there (`riso`, the default, `ledger` and
+`graphite`), chosen at build time with `--dart-define=PALETTE=<name>`. Fonts
+are bundled in `app/assets/fonts/` (Bricolage Grotesque, Instrument Sans, DM
+Mono; all Open Font License). Shared pieces (`Stamp`, `Highlighted`, `Meter`)
+are in `lib/widgets/common.dart`.
 
 ## Decisions not in the spec
 

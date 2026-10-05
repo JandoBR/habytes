@@ -1,10 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../theme.dart';
+
 const weekdayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const weekdayShort = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const monthShort = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', //
+];
+
+const monthNames = [
+  'January', 'February', 'March', 'April', 'May', 'June', //
+  'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
 /// `Mon 5 Oct 2026`
@@ -118,12 +125,114 @@ class SectionTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
+    padding: const EdgeInsets.fromLTRB(20, 28, 20, 8),
     child: Text(
-      title,
-      style: Theme.of(
-        context,
-      ).textTheme.titleSmall?.copyWith(color: Theme.of(context).colorScheme.primary),
+      title.toUpperCase(),
+      style: Theme.of(context).textTheme.titleSmall?.copyWith(color: AppPalette.of(context).muted),
     ),
   );
+}
+
+/// The mark that says a habit is logged: an empty outline, or filled with the
+/// highlighter. Square for yes/no habits, round for counters.
+class Stamp extends StatelessWidget {
+  const Stamp({super.key, required this.marked, this.round = false, this.onTap, this.size = 28});
+
+  final bool marked;
+  final bool round;
+  final VoidCallback? onTap;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    final box = AnimatedContainer(
+      duration: const Duration(milliseconds: 120),
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: marked ? palette.highlight : Colors.transparent,
+        border: Border.all(color: palette.ink, width: 1.5),
+        borderRadius: BorderRadius.circular(round ? size : 5),
+      ),
+      child: marked ? Icon(Icons.check, size: size * 0.68, color: palette.onHighlight) : null,
+    );
+    // The same footprint with or without a tap handler, so rows line up; the
+    // padding makes a finger-sized target around the small mark.
+    final padded = Padding(padding: const EdgeInsets.all(8), child: box);
+    if (onTap == null) return padded;
+    return Semantics(
+      checked: marked,
+      child: InkResponse(onTap: onTap, radius: size, child: padded),
+    );
+  }
+}
+
+/// A line of text with a highlighter stroke behind it when [on].
+class Highlighted extends StatelessWidget {
+  const Highlighted(this.text, {super.key, required this.on, this.style, this.maxLines = 1});
+
+  final String text;
+  final bool on;
+  final TextStyle? style;
+  final int maxLines;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 160),
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+      // Pull the text back out so highlighted and plain names line up.
+      transform: Matrix4.translationValues(-5, 0, 0),
+      decoration: BoxDecoration(
+        color: on ? palette.highlight : palette.highlight.withValues(alpha: 0),
+        borderRadius: BorderRadius.circular(3),
+      ),
+      child: Text(
+        text,
+        maxLines: maxLines,
+        overflow: TextOverflow.ellipsis,
+        style: (style ?? DefaultTextStyle.of(context).style).copyWith(
+          color: on ? palette.onHighlight : palette.ink,
+        ),
+      ),
+    );
+  }
+}
+
+/// Progress towards a goal: one block per unit for small goals, a bar otherwise.
+class Meter extends StatelessWidget {
+  const Meter({super.key, required this.value, required this.goal, this.height = 6});
+
+  final int value;
+  final int goal;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    final filled = value.clamp(0, goal);
+    if (goal <= 10) {
+      return Row(
+        children: [
+          for (var i = 0; i < goal; i++) ...[
+            if (i > 0) const SizedBox(width: 3),
+            Expanded(
+              child: Container(height: height, color: i < filled ? palette.ink : palette.line),
+            ),
+          ],
+        ],
+      );
+    }
+    return Stack(
+      children: [
+        Container(height: height, color: palette.line),
+        FractionallySizedBox(
+          widthFactor: filled / goal,
+          child: Container(height: height, color: palette.ink),
+        ),
+      ],
+    );
+  }
 }

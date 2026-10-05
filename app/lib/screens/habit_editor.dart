@@ -228,6 +228,7 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
                 icon: Icon(Icons.exposure_plus_1),
               ),
             ],
+            showSelectedIcon: false,
             selected: {_kind},
             // The kind cannot change once the habit exists.
             onSelectionChanged: _isNew ? (kinds) => setState(() => _kind = kinds.first) : null,
@@ -241,6 +242,7 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
               ButtonSegment(value: Schedule.weekdays, label: Text('Pick days')),
               ButtonSegment(value: Schedule.weekly, label: Text('Weekly target')),
             ],
+            showSelectedIcon: false,
             selected: {_schedule},
             onSelectionChanged: (schedules) => setState(() => _schedule = schedules.first),
           ),

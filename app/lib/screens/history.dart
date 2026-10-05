@@ -109,7 +109,10 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                   onTap: _edit,
                 ),
                 const SizedBox(height: 24),
-                _Legend(weekly: habit.schedule == Schedule.weekly, hasOffDays: habit.weekdays != null),
+                _Legend(
+                  weekly: habit.schedule == Schedule.weekly,
+                  hasOffDays: habit.weekdays != null,
+                ),
                 const SizedBox(height: 8),
                 Text(
                   'Tap a day to change its value.',
@@ -181,7 +184,7 @@ class _Heatmap extends StatelessWidget {
             margin: const EdgeInsets.all(_gap / 2),
             decoration: BoxDecoration(
               color: color,
-              borderRadius: BorderRadius.circular(4),
+              borderRadius: BorderRadius.circular(2),
               border: date == today ? Border.all(color: colors.onSurface, width: 1.5) : null,
             ),
           ),
@@ -201,9 +204,14 @@ class _Heatmap extends StatelessWidget {
         height: 14,
         child: Center(
           child: met
-              ? Icon(Icons.check, size: 13, color: colors.primary)
+              ? Container(
+                  width: 13,
+                  height: 13,
+                  color: colors.secondary,
+                  child: Icon(Icons.check, size: 11, color: colors.onSecondary),
+                )
               : complete
-              ? Icon(Icons.close, size: 11, color: colors.outline)
+              ? Icon(Icons.close, size: 11, color: colors.onSurfaceVariant)
               : null,
         ),
       );
@@ -283,7 +291,7 @@ class _Legend extends StatelessWidget {
         Container(
           width: 14,
           height: 14,
-          decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(3)),
+          decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(2)),
         ),
         const SizedBox(width: 6),
         Text(label, style: small),
@@ -297,21 +305,25 @@ class _Legend extends StatelessWidget {
       children: [
         swatch(colors.primary, 'Logged'),
         swatch(colors.surfaceContainerHighest, 'Nothing logged'),
-        if (hasOffDays)
-          swatch(colors.surfaceContainerHighest.withValues(alpha: 0.35), 'Not due'),
+        if (hasOffDays) swatch(colors.surfaceContainerHighest.withValues(alpha: 0.35), 'Not due'),
         if (weekly) ...[
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.check, size: 14, color: colors.primary),
-              const SizedBox(width: 4),
+              Container(
+                width: 14,
+                height: 14,
+                color: colors.secondary,
+                child: Icon(Icons.check, size: 12, color: colors.onSecondary),
+              ),
+              const SizedBox(width: 6),
               Text('Week met', style: small),
             ],
           ),
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.close, size: 13, color: colors.outline),
+              Icon(Icons.close, size: 13, color: colors.onSurfaceVariant),
               const SizedBox(width: 4),
               Text('Week missed', style: small),
             ],
