@@ -251,9 +251,7 @@ class _HabitRow extends ConsumerWidget {
             value: 'skip',
             child: Text(habit.skipped ? 'Do not skip today' : 'Skip today'),
           ),
-          const PopupMenuItem(value: 'more', child: Text('Amount, note…')),
           const PopupMenuDivider(),
-          const PopupMenuItem(value: 'history', child: Text('History and stats')),
           const PopupMenuItem(value: 'edit', child: Text('Edit')),
           const PopupMenuItem(value: 'archive', child: Text('Archive')),
           PopupMenuItem(
@@ -267,10 +265,6 @@ class _HabitRow extends ConsumerWidget {
       switch (action) {
         case 'skip':
           await guard(context, () => today.setDay(habit, skipped: !habit.skipped));
-        case 'more':
-          more();
-        case 'history':
-          context.push('/habits/${habit.id}/history');
         case 'edit':
           context.push('/habits/${habit.id}');
         case 'archive':

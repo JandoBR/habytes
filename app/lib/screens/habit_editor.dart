@@ -602,7 +602,7 @@ class _ReminderDialogState extends State<_ReminderDialog> {
         : TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
     final days = widget.initial?.days;
     _someDays = days != null;
-    _days = days?.toSet() ?? _offered.toSet();
+    _days = days?.toSet() ?? {};
   }
 
   String get _timeText =>
