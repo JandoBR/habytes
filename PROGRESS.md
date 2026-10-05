@@ -99,7 +99,8 @@ link-hint extension now reaches every control.
   The dev shell sources that file, so a local `flutter build apk --release`
   uses the same key as CI. A backup of both is in `shared/secrets.yaml` of
   `nixos-config` (`HABYTES_KEYSTORE_*`). Losing the key means installed apps
-  can no longer be updated, only reinstalled.
+  can no longer be updated, only reinstalled. `docs/android-signing.md` has
+  the whole story, and the steps for another app.
 * The server side is the `habitd` stack in `~/.nixos-config/server/stacks/`,
   served through SWAG, data in `/srv/appdata/habitd`. The CI runner has the
   host's Docker socket, which is what lets the workflow deploy and prune;

@@ -32,7 +32,8 @@ no passwords to manage.
 server/     habitd (Rust, Axum, SQLx/SQLite)
 app/        Flutter app: web and Android
   android/  the widget, NFC scans and reminders, in Kotlin
-scripts/    publish-image, deploy, prune-images, make-icons
+scripts/    publish-image, deploy, prune-images, publish-release, make-icons
+docs/       android-signing.md
 SPEC.md     what it is and how it works; PROGRESS.md: what has been verified, and why
 ```
 
@@ -108,7 +109,8 @@ To be told about new releases, add the repository's address to
 Forgejo). It then offers each new release as an update.
 
 All releases are signed with the same key. An APK built without that key (a
-debug build, say) will not install over a released one, and the other way round.
+debug build, say) will not install over a released one, and the other way round. `docs/android-signing.md` explains the
+key, where it is kept, and how to set one up for another app.
 
 ## Automating
 
