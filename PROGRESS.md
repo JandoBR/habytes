@@ -1,192 +1,145 @@
 # Progress
 
-Tracks the implementation of `SPEC.md`, milestone by milestone (spec section 12).
-Update it whenever a milestone moves.
+What `SPEC.md` does not say: how far along things are, what has actually been
+tried, where things live, and why some of it is the way it is.
 
-## Working on the project
+## State
 
-Everything runs inside the Nix dev shell (`nix develop`), which provides Rust,
-Flutter, JDK 17 and the Android SDK.
+Everything in `SPEC.md` is built, deployed at `https://habits.example.com`, and
+covered by tests that run in CI before anything is deployed.
 
-| Task | Command |
+### Tried on a real phone
+
+A POCO X3 GT (Android 13, MIUI, Firefox as the browser).
+
+| | |
 | --- | --- |
-| Server tests | `cd server && cargo test` |
-| Server lints | `cd server && cargo clippy --all-targets && cargo fmt --check` |
-| Server without the web app | `cd server && cargo build --no-default-features` |
-| Web app | `cd app && flutter build web --release` (then build the server to embed it) |
-| App analysis | `cd app && flutter analyze` |
-| Android APK | `cd app && flutter build apk --debug` |
-| Kotlin unit tests | `cd app/android && ./nix-gradlew :app:testDebugUnitTest` |
+| Sign-in, including the browser tab closing by itself | Works |
+| Today, with a device token | Works |
+| Widget: tapping yes/no habits and counters | Works |
+| Widget: taps made offline, delivered after reconnecting | Works |
+| Widget: the current look, the header opening the app, the `+` sheet opening | Works |
+| NFC: writing a tag and scanning it | Works |
+| The signed release build installing and starting | Works |
+| Widget: category headings, skipped marks | Not tried |
+| Quick add: actually adding a habit | Not tried |
+| Reminders: the permission prompt, the notification, its button | Not tried |
+| Widget: rolling over at midnight and at the start of a week | Not tried |
+| A revoked device token (the widget should say "Sign in" and keep its queue) | Not tried |
 
-Use `app/android/nix-gradlew` instead of `./gradlew` when calling Gradle
-directly; it passes the options `flutter build` passes on NixOS.
+MIUI restricts background work for new apps. If reminders or background sync
+seem late, set the app to "No restrictions" under battery saver.
 
-The server embeds `app/build/web` at compile time, so build the web app first
-for a release binary. Without it the server still compiles and serves only the API.
+### Tried in a browser
 
-## Milestones
+The web app has only been looked at through headless screenshots at phone
+width, against a local server with sample data, plus one real sign-in on the
+deployed one. Not looked at: wide desktop windows, and whether a keyboard
+link-hint extension now reaches every control.
 
-| # | Milestone | State |
-| --- | --- | --- |
-| 1 | Server foundation | Done |
-| 2 | Habits and entries | Done |
-| 3 | Web app | Done (see notes) |
-| 4 | Android app | Done, run on a phone (debug build) |
-| 5 | Android widget | Done, run on a phone (debug build) |
-| 6 | NFC | Done, run on a phone (debug build) |
+## Where things are
 
-### 1–2. Server (`server/`)
-
-Config, migrations, OIDC web and app login, sessions and tokens, `/meta`, `/me`,
-habits CRUD and ordering, completion logic, `/today`, `/entries`, increment and
-set, webhooks, rate limits, hourly cleanup. Integration tests in `server/tests/`
-run against in-memory SQLite and a mock OIDC issuer.
-
-### 3. Web app (`app/lib/`, `server/src/web.rs`)
-
-All screens of spec section 8: Today, habit editor, Manage, History, Settings.
-The server serves the embedded build for every path the API does not claim and
-redirects page visits without a session to `/auth/login`.
-
-Notes:
-
-* Checked by `flutter analyze`, a release web build, and API calls against a
-  locally running server. The screens have not been clicked through in a
-  browser against a real OIDC provider yet.
-
-### 4–6. Android (`app/android/app/src/main/kotlin/uk/pixxula/habytes/`)
+### Server (`server/src/`)
 
 | File | What it is |
 | --- | --- |
-| `Model.kt` | Cache, habits and outbox operations: optimistic apply, day and week change, due-day filtering. Pure Kotlin. |
+| `auth.rs`, `oidc.rs`, `extract.rs` | Login flows, the relying party, and how a request is authenticated. |
+| `api/habits.rs`, `api/categories.rs`, `api/entries.rs`, `api/tokens.rs`, `api/me.rs` | The JSON API. |
+| `schedule.rs`, `streak.rs` | Due days, week boundaries, completion; streak counting. |
+| `hooks.rs`, `ratelimit.rs` | Webhooks and the in-memory limits. |
+| `web.rs` | Serves the embedded web app and sends page visits without a session to the login. |
+
+### App (`app/lib/`)
+
+| File | What it is |
+| --- | --- |
+| `theme.dart` | The whole look: palettes, fonts, component styles, the habit inks. |
+| `widgets/common.dart` | Shared pieces: `Stamp`, `Highlighted`, `Meter`, `WeekStrip`, `Logo`. |
+| `screens/` | One file per screen. |
+| `state/` | Riverpod providers: sign-in state, Today, habits, categories. |
+| `stats.dart` | The History screen's figures. |
+| `platform/` | What differs by platform: the native channel, NFC writing, the browser. |
+
+### Android (`app/android/app/src/main/kotlin/uk/pixxula/habytes/`)
+
+| File | What it is |
+| --- | --- |
+| `Model.kt` | Cache, habits, categories and outbox operations: optimistic apply, day and week change, streaks, due-day filtering. Pure Kotlin. |
 | `HabitSync.kt` | Taps, NFC scans, and the flush + refresh exchange with the server. Pure Kotlin behind `StateStore` and `Api`. |
-| `Json.kt`, `Store.kt`, `HttpApi.kt` | Serialisation, the SharedPreferences store (excluded from backups), `HttpURLConnection` client. |
-| `Widgets.kt` | Process-wide glue: the shared `HabitSync`, redraws, WorkManager jobs (`SyncWorker`). |
+| `Json.kt`, `Store.kt`, `HttpApi.kt` | Serialisation, the SharedPreferences store, the `HttpURLConnection` client. |
+| `Widgets.kt` | Process-wide glue: the shared `HabitSync`, redraws, WorkManager jobs. |
 | `HabitWidget.kt` | The Glance widget, its tap action and its receiver. |
+| `QuickAddActivity.kt` | The widget's `+` sheet. |
 | `NfcScanActivity.kt` | UI-less activity for `habitd://habit/<id>` tags. |
+| `Reminders.kt` | Alarms, the notification and its button, rescheduling after a restart. |
+| `AuthCallbackActivity.kt` | Receives the sign-in redirect. |
 | `MainActivity.kt` | The `habitd/native` method channel. |
 
-Dart side: `lib/platform/native.dart` (channel), `lib/platform/nfc.dart` (tag
-writing, from the habit editor), `lib/screens/server.dart`, `sign_in.dart`,
-`device.dart` (the spec's Home screen).
+## Working on it
 
-Kotlin unit tests (`app/android/app/src/test/`) cover the cache and outbox
-logic and NFC scans, as listed in spec section 11.
+`README.md` has the everyday commands. Beyond those:
 
-Still to do:
-
-* Tried on a POCO X3 GT (Android 13, Firefox as browser): sign-in, Today, the
-  widget, taps made offline and delivered after reconnecting, writing and
-  scanning a tag (debug build, local server over `adb reverse`). The signed
-  release build installs and starts against `https://habits.example.com`; its
-  widget, background sync and NFC scan have not been re-checked. Not tried at
-  all yet: day and week change on the widget, a revoked token.
+* Use `app/android/nix-gradlew` instead of `./gradlew` when calling Gradle
+  directly; it passes the options `flutter build` passes on NixOS.
+* The server embeds `app/build/web` at compile time. Without it the server
+  still compiles and serves only the API; debug builds read the files from disk
+  at run time, so rebuilding the web app is enough.
+* Gradle's daemon holds several gigabytes while idle. `./gradlew --stop` in
+  `app/android` frees them.
+* `scripts/make-icons` redraws every icon from the logo's geometry.
 
 ## Build and deployment
 
-* Two Forgejo workflows run on pushes to `main` and by hand. Both run the
-  tests first, and stop there if any fail:
-  * `image.yml`, when `server/`, `app/` (other than `app/android/`), the
-    Dockerfile or the flake changed: builds the web app and habitd, pushes
-    `registry.example.com/habitd:latest` and `:<commit>`, puts it live with
-    `scripts/deploy` (pull and recreate the server's `habitd` stack), then
-    `scripts/prune-images` keeps the newest 8 versions in the registry and on
-    the server and deletes the rest.
-  * `android.yml`, when `app/` or the flake changed: builds the release APK
-    (artifact `habytes-apk`) and runs the
-    Kotlin unit tests. It signs with the keystore in the repository secrets
-    `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`
-    and `ANDROID_KEY_PASSWORD`; without them it uses a throwaway debug key, and
-    such an APK cannot update an installed one.
+* The workflows are described in `SPEC.md` section 11. They need the
+  repository secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`,
+  `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD`; without them the APK is
+  signed with a throwaway debug key and cannot update an installed one.
 * The release signing key is `~/.config/habytes/release.jks` on the dev
   machine (alias `habytes`), with its password in `keystore.env` next to it.
-  The dev shell sources that file, so local `flutter build apk --release` uses
-  the same key as CI. A backup of both is in `shared/secrets.yaml` of
+  The dev shell sources that file, so a local `flutter build apk --release`
+  uses the same key as CI. A backup of both is in `shared/secrets.yaml` of
   `nixos-config` (`HABYTES_KEYSTORE_*`). Losing the key means installed apps
   can no longer be updated, only reinstalled.
-* `scripts/publish-image` does the same as the `image` job from a dev machine.
 * The server side is the `habitd` stack in `~/.nixos-config/server/stacks/`,
-  served at `https://habits.example.com` through SWAG, data in
-  `/srv/appdata/habitd`. The CI runner has the host's Docker socket, which is
-  what lets the workflow deploy and prune; pruning also relies on the registry
-  stack allowing deletes (`REGISTRY_STORAGE_DELETE_ENABLED`).
+  served through SWAG, data in `/srv/appdata/habitd`. The CI runner has the
+  host's Docker socket, which is what lets the workflow deploy and prune;
+  pruning also relies on the registry stack allowing deletes
+  (`REGISTRY_STORAGE_DELETE_ENABLED`).
+* `scripts/publish-image` does what the image workflow does, from a dev machine.
 
-## Beyond the spec
+## Why it is this way
 
-The spec is the starting point, not the limit. Added since:
-
-* **Streaks** (`server/src/streak.rs`): current and best, counted in due days
-  or in weeks, reported by `/today` and by every write.
-* **Skipped days and notes**: `PUT .../entries/{date}` takes any of `value`,
-  `skipped` and `note`. A skipped day neither counts towards a streak nor
-  breaks it; a week with a skipped day is excused the same way.
-* **Categories** (`/categories`): named groups that remember whether they are
-  folded. Today and the widget list habits under them and hide folded ones.
-* **Per-habit unit, ink and reminder time** (`unit`, `color`, `reminder_time`).
-* **Week strip**: `/today` returns each habit's week day by day
-  (`week_values`, `week_skipped`).
-* **Stats** (`app/lib/stats.dart`): completion over 30 and 90 days, best
-  weekday and a twelve-week trend, worked out in the app from `/entries`.
-* **Reminders** (`Reminders.kt`): Android only. One inexact alarm per habit;
-  when it goes off the app refreshes, and notifies if the habit is due, not
-  done and not skipped. The notification has a button that logs it.
-
-* **Quick add** (`QuickAddActivity.kt`): the widget's `+` opens a small sheet
-  over the home screen that creates a habit (name, yes/no or a daily counter)
-  without opening the app. It needs a connection.
-* **Logo**: an H made of bits with the crossbar in the highlighter.
-  `scripts/make-icons` draws it into every web and Android icon; the adaptive
-  launcher icon is `ic_launcher_foreground.xml`.
-
-Seen working on the phone: the restyled widget, its header opening the app and
-the quick-add sheet. Not tried there yet: category headings and skipped marks
-in the widget, actually adding a habit from the sheet, and reminders.
-
-The web app keeps Flutter's semantics tree on, so every control is also a real
-element: for screen readers, and for keyboard link-hint extensions.
-
-## Look
-
-`app/lib/theme.dart` holds the whole look: flat ink on paper, hairlines
-instead of shadows, and one loud colour used only as a highlighter over what is
-done. Three palettes are defined there (`riso`, the default, `ledger` and
-`graphite`), chosen at build time with `--dart-define=PALETTE=<name>`. Fonts
-are bundled in `app/assets/fonts/` (Bricolage Grotesque, Instrument Sans, DM
-Mono; all Open Font License). Shared pieces (`Stamp`, `Highlighted`, `Meter`)
-are in `lib/widgets/common.dart`.
-
-## Decisions not in the spec
-
-* A habit's webhook is managed in that habit's editor, not in Settings, which
-  would otherwise list every habit.
-* Signing in again replaces the old credential instead of adding another: a
-  device by its name, a browser by the session cookie it still holds. Two
-  devices with the same name therefore cannot both stay signed in.
-
-* Android application ID and Kotlin package: `uk.pixxula.habytes`; the app is
-  called HaBytes.
-* `config.toml` has an extra `trust_forwarded_for` key so the login rate limit
-  works per client behind a reverse proxy.
-* Besides the four method-channel methods in the spec, Dart also asks Kotlin
-  for the device's time zone and name (`getTimeZone`, `getDeviceName`).
-* A new account's time zone is set from the device on first sign-in only while
-  it has no habits.
-* A widget tap does not send the request itself: it queues the operation and
-  starts a WorkManager job that needs a network connection, which flushes right
-  away when online and retries with backoff otherwise. A tap handler only gets
-  a few seconds to run, which a slow request could exceed.
-* During a flush, every 4xx answer other than 401, 408 and 429 drops the
-  operation (the spec names 404 and 422); anything else that can never succeed
-  would block the queue forever.
-* An unsent "set" from an earlier day of the week is not counted towards a
-  weekly total when the cache is rebuilt (the amount depends on a value only
-  the server has); unsent increments are. The next refresh corrects it.
-* The NFC debounce timestamp is kept in memory, not on disk.
-* The sign-in redirect is received by our own `AuthCallbackActivity`, not the
-  one from `flutter_web_auth_2`, which left the browser tab open with Firefox.
-* Release builds keep a few classes that are only created by reflection
-  (`app/android/app/proguard-rules.pro`); without them the app crashed at start.
-* Base images come from `public.ecr.aws` rather than Docker Hub, whose pull
-  limit failed a CI build.
-* Debug builds allow plain HTTP so the app can talk to a development server.
-* The Nix shell's NDK is used for every Gradle module (`app/android/build.gradle.kts`).
+* **A widget tap queues, it does not send.** A tap handler only gets a few
+  seconds to run, which a slow request could exceed. The flush is a
+  WorkManager job that runs at once when online.
+* **Flushing drops any 4xx but 401, 408 and 429.** Anything else that can
+  never succeed would block the queue forever.
+* **An unsent "set" from an earlier day is not counted towards a weekly
+  total** when the cache is rebuilt: the amount depends on a value only the
+  server has. Unsent increments are counted. The next refresh corrects it.
+* **Folding is stored on the server**, so the web app, the phone and the
+  widget agree, and the widget needs no fold action of its own.
+* **Signing in again replaces the old credential.** Reinstalling the app used
+  to leave a device token behind that nothing could use and that never expired.
+* **A habit's webhook is in its editor**, not in Settings, which would
+  otherwise list every habit.
+* **Our own `AuthCallbackActivity`** instead of the one from
+  `flutter_web_auth_2`, which left the browser tab open when the browser
+  delivers the redirect in its own task, as Firefox does.
+* **Flutter deep linking is off on Android.** The widget's launch intents
+  carry a data URI that Flutter read as a route, landing on "page not found".
+* **Release builds keep a few classes** (`app/android/app/proguard-rules.pro`)
+  that are only created by reflection; without them the app crashed at start.
+* **Reminders use inexact alarms**, which need no special permission.
+* **Base images come from `public.ecr.aws`**, not Docker Hub, whose pull limit
+  failed a CI build.
+* **The Nix shell's NDK is used for every Gradle module**
+  (`app/android/build.gradle.kts`): plugins with native code ask for Flutter's
+  preferred version, which the read-only store cannot download.
+* **The NFC debounce timestamp is kept in memory**, not on disk; it only
+  matters for a second.
+* **Debug builds allow plain HTTP** so the app can talk to a development
+  server; release builds do not.
+* **A new account's time zone is set from the device** only while it has no
+  habits, so it never moves a day's worth of existing entries.
+* The Android application ID and Kotlin package are `uk.pixxula.habytes`.

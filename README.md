@@ -33,7 +33,7 @@ server/     habitd (Rust, Axum, SQLx/SQLite)
 app/        Flutter app: web and Android
   android/  the widget, NFC scans and reminders, in Kotlin
 scripts/    publish-image, deploy, prune-images, make-icons
-SPEC.md     the original design; PROGRESS.md records what was built beyond it
+SPEC.md     what it is and how it works; PROGRESS.md: what has been verified, and why
 ```
 
 ## Developing
