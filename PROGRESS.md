@@ -77,8 +77,10 @@ link-hint extension now reaches every control.
 
 ## Working on it
 
-`README.md` has the everyday commands, and `docs/android-on-nixos.md` the
-whole account of building for Android on NixOS and on the runner. In short:
+`README.md` has the everyday commands. The whole account of building for
+Android on NixOS, the runner, deploying and signing is in the Dev-kit
+repository (`forgejo.example.com/Jando/Dev-kit`), which also has the generic
+form of this project's workflows and scripts. In short:
 
 * Use `app/android/nix-gradlew` instead of `./gradlew` when calling Gradle
   directly; it passes the options `flutter build` passes on NixOS.
@@ -100,8 +102,8 @@ whole account of building for Android on NixOS and on the runner. In short:
   The dev shell sources that file, so a local `flutter build apk --release`
   uses the same key as CI. A backup of both is in `shared/secrets.yaml` of
   `nixos-config` (`HABYTES_KEYSTORE_*`). Losing the key means installed apps
-  can no longer be updated, only reinstalled. `docs/android-signing.md` has
-  the whole story, and the steps for another app.
+  can no longer be updated, only reinstalled. To restore it:
+  `sops -d --extract '["HABYTES_KEYSTORE_BASE64"]' shared/secrets.yaml | base64 -d > release.jks`.
 * The server side is the `habitd` stack in `~/.nixos-config/server/stacks/`,
   served through SWAG, data in `/srv/appdata/habitd`. The CI runner has the
   host's Docker socket, which is what lets the workflow deploy and prune;

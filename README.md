@@ -33,7 +33,6 @@ server/     habitd (Rust, Axum, SQLx/SQLite)
 app/        Flutter app: web and Android
   android/  the widget, NFC scans and reminders, in Kotlin
 scripts/    publish-image, deploy, prune-images, publish-release, make-icons
-docs/       android-on-nixos.md, android-signing.md
 SPEC.md     what it is and how it works; PROGRESS.md: what has been verified, and why
 ```
 
@@ -65,8 +64,10 @@ cd ../server && cargo run -- config.toml
 The server embeds `app/build/web`, so build the web app first. Register
 `{public_url}/auth/callback` as the redirect URI at your provider.
 
-`docs/android-on-nixos.md` explains what it takes to build the Android app
-here and on the CI runner, and can be reused for another app.
+The general know-how behind this setup (building for Android on NixOS, the
+CI runner, deploying to the server, signing) lives in the
+[Dev-kit](https://forgejo.example.com/Jando/Dev-kit) repository, with templates
+for starting another project the same way.
 
 `PROGRESS.md` has the details: how the parts fit together, the decisions made
 along the way, and what has and has not been tried on a real phone.
@@ -112,8 +113,8 @@ To be told about new releases, add the repository's address to
 Forgejo). It then offers each new release as an update.
 
 All releases are signed with the same key. An APK built without that key (a
-debug build, say) will not install over a released one, and the other way round. `docs/android-signing.md` explains the
-key, where it is kept, and how to set one up for another app.
+debug build, say) will not install over a released one, and the other way round. The Dev-kit's `docs/android-signing.md`
+explains signing keys; where this app's key is kept is in `PROGRESS.md`.
 
 ## Automating
 
