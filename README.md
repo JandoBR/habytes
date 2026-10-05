@@ -96,6 +96,20 @@ build a signed APK.
 Back up by copying the database while the server is stopped, or with
 `sqlite3 habits.db ".backup backup.db"` while it runs.
 
+## Getting the Android app
+
+Every build of the app is published on the repository's **Releases** page as
+`v1.0.<n>`, with the signed APK attached (`habytes-1.0.<n>.apk`). Download the
+newest one and open it to install; later releases install over it and keep
+your sign-in and widget.
+
+To be told about new releases, add the repository's address to
+[Obtainium](https://github.com/ImranR98/Obtainium) on the phone (it knows
+Forgejo). It then offers each new release as an update.
+
+All releases are signed with the same key. An APK built without that key (a
+debug build, say) will not install over a released one, and the other way round.
+
 ## Automating
 
 Every action in the app is an API call (`/api/v1/*`, described in `SPEC.md`),
