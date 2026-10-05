@@ -84,6 +84,23 @@ Still to do:
 * Release signing (the release build type still uses the debug key).
 * App icon (still the Flutter default).
 
+## Build and deployment
+
+* `.forgejo/workflows/build.yml` runs on every push to `main` (except
+  documentation-only pushes) and by hand:
+  * `image` builds the web app and habitd and pushes
+    `registry.example.com/habitd:latest` and `:<commit>`.
+  * `android` builds the release APK (artifact `habytes-apk`) and runs the
+    Kotlin unit tests. It signs with the keystore in the repository secrets
+    `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`
+    and `ANDROID_KEY_PASSWORD`; without them it uses a throwaway debug key, and
+    such an APK cannot update an installed one.
+* `scripts/publish-image` does the same as the `image` job from a dev machine.
+* The server side is the `habitd` stack in `~/.nixos-config/server/stacks/`,
+  served at `https://habits.example.com` through SWAG, data in
+  `/srv/appdata/habitd`. The stack pins `:latest`, so a new image is picked up
+  with the stack updater (or `docker compose up -d --pull always`).
+
 ## Decisions not in the spec
 
 * Android application ID and Kotlin package: `uk.pixxula.habytes`; the app is

@@ -3,6 +3,7 @@ name: Build
 on:
   push:
     branches: [main]
+    paths-ignore: ["**.md"]
   workflow_dispatch:
 
 # The runner has Nix installed but not on PATH. NIX_CONFIG avoids the `nixbld`
