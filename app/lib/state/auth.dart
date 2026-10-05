@@ -132,12 +132,10 @@ class AuthController extends AsyncNotifier<AuthState> {
     final serverUrl = current.serverUrl;
 
     final random = Random.secure();
-    final verifier = base64UrlEncode(
-      List.generate(32, (_) => random.nextInt(256)),
-    ).replaceAll('=', '');
-    final challenge = base64UrlEncode(
-      sha256.convert(ascii.encode(verifier)).bytes,
-    ).replaceAll('=', '');
+    final verifier = base64UrlEncode(List.generate(32, (_) => random.nextInt(256)))
+        .replaceAll('=', '');
+    final challenge = base64UrlEncode(sha256.convert(ascii.encode(verifier)).bytes)
+        .replaceAll('=', '');
 
     final result = await FlutterWebAuth2.authenticate(
       url: '$serverUrl/auth/login?client=app&code_challenge=$challenge',
@@ -148,11 +146,8 @@ class AuthController extends AsyncNotifier<AuthState> {
       throw const ApiException(0, 'no_code', 'The sign-in did not complete.');
     }
 
-    final exchanged = await ApiClient(baseUrl: serverUrl).exchangeCode(
-      code: code,
-      codeVerifier: verifier,
-      deviceName: await Native.deviceName(),
-    );
+    final exchanged = await ApiClient(baseUrl: serverUrl)
+        .exchangeCode(code: code, codeVerifier: verifier, deviceName: await Native.deviceName());
     await Native.saveCredentials(serverUrl, exchanged.token);
     final api = _deviceClient(serverUrl, exchanged.token);
     state = AsyncData(await _signedIn(serverUrl, api, exchanged.user));

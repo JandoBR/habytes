@@ -23,6 +23,9 @@ enum HabitKind { boolean, counter }
 
 enum Schedule { daily, weekdays, weekly }
 
+/// The inks a habit can be drawn in; `ink` is the app's own.
+const habitColors = ['ink', 'red', 'green', 'violet', 'orange', 'teal'];
+
 /// `12 days`, `1 week`: a streak's length in the habit's own period.
 String streakLength(int streak, Schedule schedule) {
   final unit = schedule == Schedule.weekly ? 'week' : 'day';
@@ -62,6 +65,10 @@ class Habit {
     required this.position,
     required this.archived,
     required this.webhookUrl,
+    required this.unit,
+    required this.color,
+    required this.categoryId,
+    required this.reminderTime,
   });
 
   factory Habit.fromJson(Map<String, dynamic> json) => Habit(
@@ -75,6 +82,10 @@ class Habit {
     position: json['position'] as int,
     archived: json['archived'] as bool,
     webhookUrl: json['webhook_url'] as String?,
+    unit: json['unit'] as String? ?? '',
+    color: json['color'] as String? ?? 'ink',
+    categoryId: json['category_id'] as String?,
+    reminderTime: json['reminder_time'] as String?,
   );
 
   final String id;
@@ -90,6 +101,16 @@ class Habit {
   final bool archived;
   final String? webhookUrl;
 
+  /// What a counter counts: `pages`, `ml`. May be empty.
+  final String unit;
+
+  /// One of [habitColors].
+  final String color;
+  final String? categoryId;
+
+  /// A local time of day, `HH:MM`, or null for no reminder.
+  final String? reminderTime;
+
   bool isDueOn(DateTime date) => weekdays?.contains(date.weekday) ?? true;
 }
 
@@ -101,6 +122,8 @@ class EntryStatus {
     required this.value,
     required this.periodValue,
     required this.done,
+    required this.skipped,
+    required this.note,
     required this.streak,
     required this.bestStreak,
   });
@@ -111,6 +134,8 @@ class EntryStatus {
     value: json['value'] as int,
     periodValue: json['period_value'] as int,
     done: json['done'] as bool,
+    skipped: json['skipped'] as bool? ?? false,
+    note: json['note'] as String? ?? '',
     streak: json['streak'] as int? ?? 0,
     bestStreak: json['best_streak'] as int? ?? 0,
   );
@@ -120,6 +145,10 @@ class EntryStatus {
   final int value;
   final int periodValue;
   final bool done;
+
+  /// The day is excused: it neither counts towards a streak nor breaks one.
+  final bool skipped;
+  final String note;
 
   /// Periods done in a row: due days, or weeks for a weekly habit.
   final int streak;
@@ -133,13 +162,21 @@ class TodayHabit {
     required this.name,
     required this.kind,
     required this.schedule,
+    required this.weekdays,
     required this.goal,
+    required this.unit,
+    required this.color,
+    required this.categoryId,
     required this.due,
     required this.value,
     required this.periodValue,
     required this.done,
+    required this.skipped,
+    required this.note,
     required this.streak,
     required this.bestStreak,
+    required this.weekValues,
+    required this.weekSkipped,
   });
 
   factory TodayHabit.fromJson(Map<String, dynamic> json) => TodayHabit(
@@ -147,20 +184,32 @@ class TodayHabit {
     name: json['name'] as String,
     kind: HabitKind.values.byName(json['kind'] as String),
     schedule: Schedule.values.byName(json['schedule'] as String),
+    weekdays: (json['weekdays'] as List?)?.cast<int>(),
     goal: json['goal'] as int,
+    unit: json['unit'] as String? ?? '',
+    color: json['color'] as String? ?? 'ink',
+    categoryId: json['category_id'] as String?,
     due: json['due'] as bool,
     value: json['value'] as int,
     periodValue: json['period_value'] as int,
     done: json['done'] as bool,
+    skipped: json['skipped'] as bool? ?? false,
+    note: json['note'] as String? ?? '',
     streak: json['streak'] as int? ?? 0,
     bestStreak: json['best_streak'] as int? ?? 0,
+    weekValues: (json['week_values'] as List?)?.cast<int>() ?? const [],
+    weekSkipped: (json['week_skipped'] as List?)?.cast<bool>() ?? const [],
   );
 
   final String id;
   final String name;
   final HabitKind kind;
   final Schedule schedule;
+  final List<int>? weekdays;
   final int goal;
+  final String unit;
+  final String color;
+  final String? categoryId;
   final bool due;
 
   /// The day's own value.
@@ -170,38 +219,109 @@ class TodayHabit {
   final int periodValue;
   final bool done;
 
+  /// The day is excused: it neither counts towards a streak nor breaks one.
+  final bool skipped;
+  final String note;
+
   /// Periods done in a row: due days, or weeks for a weekly habit.
   final int streak;
   final int bestStreak;
 
-  TodayHabit withStatus(EntryStatus status) => TodayHabit(
+  /// The value of each day of the shown week, from its first day.
+  final List<int> weekValues;
+  final List<bool> weekSkipped;
+
+  /// The row after a write. [dayIndex] is the shown day's place in the week.
+  TodayHabit withStatus(EntryStatus status, int dayIndex) => TodayHabit(
     id: id,
     name: name,
     kind: kind,
     schedule: schedule,
+    weekdays: weekdays,
     goal: goal,
+    unit: unit,
+    color: color,
+    categoryId: categoryId,
     due: due,
     value: status.value,
     periodValue: status.periodValue,
     done: status.done,
+    skipped: status.skipped,
+    note: status.note,
     streak: status.streak,
     bestStreak: status.bestStreak,
+    weekValues: [
+      for (var i = 0; i < weekValues.length; i++) i == dayIndex ? status.value : weekValues[i],
+    ],
+    weekSkipped: [
+      for (var i = 0; i < weekSkipped.length; i++) i == dayIndex ? status.skipped : weekSkipped[i],
+    ],
   );
 
-  /// `3/8 today`, `2/3 this week`, or nothing for a plain daily checkbox.
+  /// `3/8 pages`, `2/3 this week`, or nothing for a plain daily checkbox.
   String get progress {
-    if (schedule == Schedule.weekly) return '$periodValue/$goal this week';
-    if (kind == HabitKind.counter) return '$value/$goal today';
+    final amount = unit.isEmpty ? '' : ' $unit';
+    if (schedule == Schedule.weekly) return '$periodValue/$goal$amount this week';
+    if (kind == HabitKind.counter) return '$value/$goal$amount';
     return '';
   }
 }
 
+class Category {
+  const Category({
+    required this.id,
+    required this.name,
+    required this.position,
+    required this.collapsed,
+  });
+
+  factory Category.fromJson(Map<String, dynamic> json) => Category(
+    id: json['id'] as String,
+    name: json['name'] as String,
+    position: json['position'] as int,
+    collapsed: json['collapsed'] as bool,
+  );
+
+  final String id;
+  final String name;
+  final int position;
+
+  /// Folded away on Today and in the widget.
+  final bool collapsed;
+
+  Category withCollapsed(bool collapsed) =>
+      Category(id: id, name: name, position: position, collapsed: collapsed);
+}
+
+/// One day of one habit, as `GET /entries` lists it.
+class DayEntry {
+  const DayEntry({this.value = 0, this.skipped = false, this.note = ''});
+
+  factory DayEntry.fromJson(Map<String, dynamic> json) => DayEntry(
+    value: json['value'] as int,
+    skipped: json['skipped'] as bool? ?? false,
+    note: json['note'] as String? ?? '',
+  );
+
+  final int value;
+  final bool skipped;
+  final String note;
+}
+
 class TodayView {
-  const TodayView({required this.date, required this.weekStartDate, required this.habits});
+  const TodayView({
+    required this.date,
+    required this.weekStartDate,
+    required this.categories,
+    required this.habits,
+  });
 
   factory TodayView.fromJson(Map<String, dynamic> json) => TodayView(
     date: json['date'] as String,
     weekStartDate: json['week_start_date'] as String,
+    categories: ((json['categories'] as List?) ?? const [])
+        .map((c) => Category.fromJson(c as Map<String, dynamic>))
+        .toList(),
     habits: (json['habits'] as List)
         .map((h) => TodayHabit.fromJson(h as Map<String, dynamic>))
         .toList(),
@@ -209,15 +329,27 @@ class TodayView {
 
   final String date;
   final String weekStartDate;
+  final List<Category> categories;
   final List<TodayHabit> habits;
+
+  /// The shown day's place in its week, 0 to 6.
+  int get dayIndex => parseYmd(date).difference(parseYmd(weekStartDate)).inDays;
 
   TodayView withStatus(EntryStatus status) => TodayView(
     date: date,
     weekStartDate: weekStartDate,
+    categories: categories,
     habits: [
       for (final habit in habits)
-        if (habit.id == status.habitId) habit.withStatus(status) else habit,
+        if (habit.id == status.habitId) habit.withStatus(status, dayIndex) else habit,
     ],
+  );
+
+  TodayView withCategory(Category changed) => TodayView(
+    date: date,
+    weekStartDate: weekStartDate,
+    categories: [for (final c in categories) c.id == changed.id ? changed : c],
+    habits: habits,
   );
 }
 

@@ -5,16 +5,18 @@ import 'package:go_router/go_router.dart';
 import '../api/models.dart';
 import '../state/auth.dart';
 import '../state/data.dart';
+import '../theme.dart';
 import '../widgets/common.dart';
 
 /// `Every day`, `Mon, Wed, Fri`, `3 days a week`, ...
 String describeSchedule(Habit habit) {
   final counter = habit.kind == HabitKind.counter;
+  final amount = habit.unit.isEmpty ? '${habit.goal}' : '${habit.goal} ${habit.unit}';
   return switch (habit.schedule) {
-    Schedule.daily => counter ? '${habit.goal} every day' : 'Every day',
+    Schedule.daily => counter ? '$amount every day' : 'Every day',
     Schedule.weekdays =>
-      '${counter ? '${habit.goal} on ' : ''}${habit.weekdays!.map((d) => weekdayShort[d - 1]).join(', ')}',
-    Schedule.weekly => counter ? '${habit.goal} a week' : '${habit.goal} days a week',
+      '${counter ? '$amount on ' : ''}${habit.weekdays!.map((d) => weekdayShort[d - 1]).join(', ')}',
+    Schedule.weekly => counter ? '$amount a week' : '${habit.goal} days a week',
   };
 }
 
@@ -84,6 +86,10 @@ class _ListsState extends ConsumerState<_Lists> {
   @override
   Widget build(BuildContext context) {
     final archived = widget.habits.where((h) => h.archived).toList();
+    final categoryNames = {
+      for (final category in ref.watch(categoriesProvider).value ?? const <Category>[])
+        category.id: category.name,
+    };
     if (widget.habits.isEmpty) {
       return const Center(child: Text('No habits yet.'));
     }
@@ -103,7 +109,9 @@ class _ListsState extends ConsumerState<_Lists> {
           return ListTile(
             key: ValueKey(habit.id),
             title: Text(habit.name),
-            subtitle: Text(describeSchedule(habit)),
+            leading: Container(width: 6, height: 32, color: habitInk(context, habit.color)),
+            minLeadingWidth: 6,
+            subtitle: Text([describeSchedule(habit), ?categoryNames[habit.categoryId]].join(' · ')),
             // Leave room for the drag handle shown on desktop and web.
             contentPadding: const EdgeInsets.only(left: 16, right: 48),
             trailing: IconButton(
@@ -114,25 +122,136 @@ class _ListsState extends ConsumerState<_Lists> {
             onTap: () => context.push('/habits/${habit.id}'),
           );
         },
-        footer: archived.isEmpty
-            ? null
-            : Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SectionTitle('Archived'),
-                  for (final habit in archived)
-                    ListTile(
-                      title: Text(habit.name),
-                      subtitle: Text(describeSchedule(habit)),
-                      trailing: TextButton(
-                        onPressed: () => _restore(habit),
-                        child: const Text('Restore'),
-                      ),
-                      onTap: () => context.push('/habits/${habit.id}'),
-                    ),
-                ],
-              ),
+        footer: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SectionTitle('Categories'),
+            const _Categories(),
+            if (archived.isNotEmpty) ...[
+              const SectionTitle('Archived'),
+              for (final habit in archived)
+                ListTile(
+                  title: Text(habit.name),
+                  subtitle: Text(describeSchedule(habit)),
+                  trailing: TextButton(
+                    onPressed: () => _restore(habit),
+                    child: const Text('Restore'),
+                  ),
+                  onTap: () => context.push('/habits/${habit.id}'),
+                ),
+            ],
+          ],
+        ),
       ),
+    );
+  }
+}
+
+/// Add, rename, reorder and delete categories. Habits are put into one in
+/// their editor; folding is done on Today.
+class _Categories extends ConsumerWidget {
+  const _Categories();
+
+  Future<String?> _askName(BuildContext context, {String initial = ''}) {
+    final controller = TextEditingController(text: initial);
+    return showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(initial.isEmpty ? 'New category' : 'Rename category'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 60,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(labelText: 'Name', hintText: 'Health'),
+          onSubmitted: (value) => Navigator.pop(context, value),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final api = ref.read(apiProvider);
+
+    Future<void> run(Future<void> Function() action) async {
+      if (await guard(context, action)) invalidateHabits(ref);
+    }
+
+    return AsyncView(
+      value: ref.watch(categoriesProvider),
+      onRetry: () => ref.invalidate(categoriesProvider),
+      builder: (categories) {
+        void move(int from, int to) {
+          final ids = [for (final category in categories) category.id];
+          ids.insert(to, ids.removeAt(from));
+          run(() => api.reorderCategories(ids));
+        }
+
+        return Column(
+          children: [
+            for (final (index, category) in categories.indexed)
+              ListTile(
+                title: Text(category.name),
+                contentPadding: const EdgeInsets.only(left: 16, right: 4),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      tooltip: 'Move up',
+                      icon: const Icon(Icons.arrow_upward, size: 20),
+                      onPressed: index == 0 ? null : () => move(index, index - 1),
+                    ),
+                    IconButton(
+                      tooltip: 'Move down',
+                      icon: const Icon(Icons.arrow_downward, size: 20),
+                      onPressed: index == categories.length - 1
+                          ? null
+                          : () => move(index, index + 1),
+                    ),
+                    PopupMenuButton<String>(
+                      onSelected: (action) async {
+                        if (action == 'rename') {
+                          final name = await _askName(context, initial: category.name);
+                          if (name == null || name.trim().isEmpty) return;
+                          await run(() => api.updateCategory(category.id, name: name.trim()));
+                        } else {
+                          final ok = await confirm(
+                            context,
+                            title: 'Delete "${category.name}"?',
+                            message: 'Its habits are kept, without a category.',
+                            action: 'Delete',
+                          );
+                          if (ok) await run(() => api.deleteCategory(category.id));
+                        }
+                      },
+                      itemBuilder: (context) => const [
+                        PopupMenuItem(value: 'rename', child: Text('Rename')),
+                        PopupMenuItem(value: 'delete', child: Text('Delete')),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ListTile(
+              leading: const Icon(Icons.add),
+              title: const Text('Add category'),
+              onTap: () async {
+                final name = await _askName(context);
+                if (name == null || name.trim().isEmpty) return;
+                await run(() => api.createCategory(name.trim()));
+              },
+            ),
+          ],
+        );
+      },
     );
   }
 }

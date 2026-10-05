@@ -7,6 +7,7 @@ import '../api/models.dart';
 import '../platform/native.dart';
 import '../state/auth.dart';
 import '../state/data.dart';
+import '../stats.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 import 'manage.dart';
@@ -14,7 +15,8 @@ import 'manage.dart';
 const _cell = 20.0;
 const _gap = 3.0;
 
-/// A calendar heatmap of one habit's last 12 months.
+/// One habit's record: streaks, figures, a calendar heatmap of the last 12
+/// months, and its notes.
 class HistoryScreen extends ConsumerStatefulWidget {
   const HistoryScreen({super.key, required this.habitId});
 
@@ -29,7 +31,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
   late final DateTime _first = _today.subtract(const Duration(days: 365));
   Habit? _habit;
   TodayHabit? _status;
-  Map<String, int> _entries = {};
+  Map<String, DayEntry> _entries = {};
   Object? _error;
 
   @override
@@ -68,18 +70,29 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
 
   Future<void> _edit(DateTime date) async {
     final habit = _habit!;
-    final current = _entries[ymd(date)] ?? 0;
-    final value = await showDialog<int>(
+    final current = _entries[ymd(date)] ?? const DayEntry();
+    final changed = await showDialog<DayEntry>(
       context: context,
-      builder: (context) => _ValueDialog(habit: habit, date: date, value: current),
+      builder: (context) => _DayDialog(habit: habit, date: date, entry: current),
     );
-    if (value == null || value == current || !mounted) return;
+    if (changed == null || !mounted) return;
     await guard(context, () async {
-      final status = await ref.read(apiProvider).setValue(habit.id, ymd(date), value);
+      final status = await ref
+          .read(apiProvider)
+          .setDay(
+            habit.id,
+            ymd(date),
+            value: changed.value,
+            skipped: changed.skipped,
+            note: changed.note,
+          );
       final streaks = await _fetchStatus(habit);
       if (mounted) {
         setState(() {
-          _entries = {..._entries, status.date: status.value};
+          _entries = {
+            ..._entries,
+            status.date: DayEntry(value: status.value, skipped: status.skipped, note: status.note),
+          };
           _status = streaks;
         });
       }
@@ -107,56 +120,105 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
           ? ErrorView(error: _error!, onRetry: _load)
           : habit == null
           ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                Text(describeSchedule(habit), style: Theme.of(context).textTheme.titleMedium),
-                if (habit.description.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(habit.description),
-                ],
-                if (_status != null) ...[
-                  const SizedBox(height: 20),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _Figure(
-                          label: 'Current streak',
-                          value: streakLength(_status!.streak, habit.schedule),
-                          marked: _status!.streak > 0 && _status!.streak == _status!.bestStreak,
-                        ),
+          : Centered(child: _body(context, habit)),
+    );
+  }
+
+  Widget _body(BuildContext context, Habit habit) {
+    final text = Theme.of(context).textTheme;
+    final palette = AppPalette.of(context);
+    final weekStart = ref.watch(userProvider).weekStart;
+    final stats = computeStats(habit, _entries, _today, weekStart);
+    final ink = habitInk(context, habit.color);
+    final period = habit.schedule == Schedule.weekly ? 'weeks' : 'days';
+    String percent(double? rate) => rate == null ? '–' : '${(rate * 100).round()}%';
+    final notes = _entries.entries.where((e) => e.value.note.isNotEmpty).toList()
+      ..sort((a, b) => b.key.compareTo(a.key));
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Text(describeSchedule(habit), style: text.titleMedium),
+        if (habit.description.isNotEmpty) ...[const SizedBox(height: 4), Text(habit.description)],
+        const SizedBox(height: 20),
+        Wrap(
+          spacing: 28,
+          runSpacing: 16,
+          children: [
+            if (_status != null) ...[
+              _Figure(
+                label: 'Current streak',
+                value: streakLength(_status!.streak, habit.schedule),
+                marked: _status!.streak > 0 && _status!.streak == _status!.bestStreak,
+              ),
+              _Figure(
+                label: 'Best streak',
+                value: streakLength(_status!.bestStreak, habit.schedule),
+              ),
+            ],
+            _Figure(label: 'Last 30 days', value: percent(stats.rate30)),
+            _Figure(label: 'Last 90 days', value: percent(stats.rate90)),
+            if (stats.bestWeekday != null)
+              _Figure(label: 'Best day', value: weekdayNames[stats.bestWeekday! - 1]),
+          ],
+        ),
+        const SizedBox(height: 24),
+        Text('LAST 12 WEEKS', style: text.titleSmall!.copyWith(color: palette.muted)),
+        const SizedBox(height: 8),
+        _Trend(weeks: stats.weeks, color: ink),
+        const SizedBox(height: 4),
+        Text(
+          habit.schedule == Schedule.weekly
+              ? 'How far each week got towards its goal.'
+              : 'The share of due $period done each week.',
+          style: text.bodySmall!.copyWith(color: palette.muted),
+        ),
+        const SizedBox(height: 24),
+        _Heatmap(
+          habit: habit,
+          entries: _entries,
+          first: _first,
+          today: _today,
+          weekStart: weekStart,
+          color: ink,
+          onTap: _edit,
+        ),
+        const SizedBox(height: 16),
+        _Legend(
+          color: ink,
+          weekly: habit.schedule == Schedule.weekly,
+          hasOffDays: habit.weekdays != null,
+          hasSkipped: _entries.values.any((e) => e.skipped),
+        ),
+        const SizedBox(height: 8),
+        Text('Tap a day to change it, skip it or add a note.', style: text.bodySmall),
+        if (notes.isNotEmpty) ...[
+          const SizedBox(height: 24),
+          Text('NOTES', style: text.titleSmall!.copyWith(color: palette.muted)),
+          const SizedBox(height: 4),
+          for (final note in notes.take(30))
+            InkWell(
+              onTap: () => _edit(parseYmd(note.key)),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 108,
+                      child: Text(
+                        formatDate(parseYmd(note.key)),
+                        style: monoStyle(context, size: 12).copyWith(color: palette.muted),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _Figure(
-                          label: 'Best streak',
-                          value: streakLength(_status!.bestStreak, habit.schedule),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-                const SizedBox(height: 24),
-                _Heatmap(
-                  habit: habit,
-                  entries: _entries,
-                  first: _first,
-                  today: _today,
-                  weekStart: ref.watch(userProvider).weekStart,
-                  onTap: _edit,
+                    ),
+                    Expanded(child: Text(note.value.note)),
+                  ],
                 ),
-                const SizedBox(height: 24),
-                _Legend(
-                  weekly: habit.schedule == Schedule.weekly,
-                  hasOffDays: habit.weekdays != null,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Tap a day to change its value.',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
+              ),
             ),
+        ],
+        const SizedBox(height: 32),
+      ],
     );
   }
 }
@@ -174,6 +236,7 @@ class _Figure extends StatelessWidget {
     final text = Theme.of(context).textTheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
         Text(
           label.toUpperCase(),
@@ -189,6 +252,47 @@ class _Figure extends StatelessWidget {
   }
 }
 
+/// Twelve bars, one per week, oldest first.
+class _Trend extends StatelessWidget {
+  const _Trend({required this.weeks, required this.color});
+
+  final List<double> weeks;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    const height = 56.0;
+    return SizedBox(
+      height: height,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          for (final (index, week) in weeks.indexed) ...[
+            if (index > 0) const SizedBox(width: 4),
+            Expanded(
+              child: Tooltip(
+                message: '${(week * 100).round()}%',
+                child: Container(
+                  height: height,
+                  alignment: Alignment.bottomCenter,
+                  decoration: BoxDecoration(
+                    border: Border(bottom: BorderSide(color: palette.line)),
+                  ),
+                  child: FractionallySizedBox(
+                    heightFactor: week.clamp(0.0, 1.0),
+                    child: Container(color: color),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _Heatmap extends StatelessWidget {
   const _Heatmap({
     required this.habit,
@@ -196,14 +300,16 @@ class _Heatmap extends StatelessWidget {
     required this.first,
     required this.today,
     required this.weekStart,
+    required this.color,
     required this.onTap,
   });
 
   final Habit habit;
-  final Map<String, int> entries;
+  final Map<String, DayEntry> entries;
   final DateTime first;
   final DateTime today;
   final int weekStart;
+  final Color color;
   final void Function(DateTime date) onTap;
 
   bool get _weekly => habit.schedule == Schedule.weekly;
@@ -220,6 +326,7 @@ class _Heatmap extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final palette = AppPalette.of(context);
     final small = Theme.of(context).textTheme.labelSmall;
     final gridStart = weekStartDate(first, weekStart);
     final weeks = (today.difference(gridStart).inDays ~/ 7) + 1;
@@ -228,19 +335,25 @@ class _Heatmap extends StatelessWidget {
       if (date.isBefore(first) || date.isAfter(today)) {
         return const SizedBox(width: _cell + _gap, height: _cell + _gap);
       }
-      final value = entries[ymd(date)] ?? 0;
+      final entry = entries[ymd(date)] ?? const DayEntry();
       final due = habit.isDueOn(date);
-      final Color color;
-      if (value > 0) {
-        color = colors.primary.withValues(alpha: _fill(value));
-      } else if (due) {
-        color = colors.surfaceContainerHighest;
+      final skipped = entry.skipped && entry.value == 0;
+      final Color fill;
+      if (entry.value > 0) {
+        fill = color.withValues(alpha: _fill(entry.value));
+      } else if (due && !skipped) {
+        fill = palette.line;
       } else {
-        // Not due and nothing logged: greyed out.
-        color = colors.surfaceContainerHighest.withValues(alpha: 0.35);
+        // Not due, or excused, and nothing logged: greyed out.
+        fill = palette.line.withValues(alpha: 0.35);
       }
+      final unit = habit.unit.isEmpty ? '' : ' ${habit.unit}';
       return Tooltip(
-        message: '${formatDate(date)}: $value${due ? '' : ' (not due)'}',
+        message: [
+          '${formatDate(date)}: ${entry.value}$unit',
+          if (skipped) 'skipped' else if (!due) 'not due',
+          if (entry.note.isNotEmpty) entry.note,
+        ].join('\n'),
         child: GestureDetector(
           onTap: () => onTap(date),
           child: Container(
@@ -248,22 +361,32 @@ class _Heatmap extends StatelessWidget {
             height: _cell,
             margin: const EdgeInsets.all(_gap / 2),
             decoration: BoxDecoration(
-              color: color,
+              color: fill,
               borderRadius: BorderRadius.circular(2),
               border: date == today ? Border.all(color: colors.onSurface, width: 1.5) : null,
             ),
+            child: skipped
+                ? Center(child: Container(width: 8, height: 1.5, color: palette.muted))
+                : entry.note.isNotEmpty
+                ? Align(
+                    alignment: Alignment.topRight,
+                    // A dog-ear for days that carry a note.
+                    child: Container(width: 5, height: 5, color: palette.highlight),
+                  )
+                : null,
           ),
         ),
       );
     }
 
-    /// Whether a week met its goal: null while it is still running or is cut
-    /// off by the start of the range.
+    /// Whether a week met its goal: nothing while it is still running or is
+    /// cut off by the start of the range.
     Widget weekMarker(DateTime start) {
       final days = [for (var i = 0; i < 7; i++) start.add(Duration(days: i))];
-      final sum = days.fold(0, (total, day) => total + (entries[ymd(day)] ?? 0));
+      final sum = days.fold(0, (total, day) => total + (entries[ymd(day)]?.value ?? 0));
       final met = sum >= habit.goal;
       final complete = !start.isBefore(first) && !days.last.isAfter(today);
+      final excused = days.any((day) => entries[ymd(day)]?.skipped ?? false);
       return SizedBox(
         width: _cell + _gap,
         height: 14,
@@ -275,7 +398,7 @@ class _Heatmap extends StatelessWidget {
                   color: colors.secondary,
                   child: Icon(Icons.check, size: 11, color: colors.onSecondary),
                 )
-              : complete
+              : complete && !excused
               ? Icon(Icons.close, size: 11, color: colors.onSurfaceVariant)
               : null,
         ),
@@ -340,27 +463,37 @@ class _Heatmap extends StatelessWidget {
 }
 
 class _Legend extends StatelessWidget {
-  const _Legend({required this.weekly, required this.hasOffDays});
+  const _Legend({
+    required this.color,
+    required this.weekly,
+    required this.hasOffDays,
+    required this.hasSkipped,
+  });
 
+  final Color color;
   final bool weekly;
   final bool hasOffDays;
+  final bool hasSkipped;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final palette = AppPalette.of(context);
     final small = Theme.of(context).textTheme.bodySmall;
 
-    Widget swatch(Color color, String label) => Row(
+    Widget item(Widget mark, String label) => Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          width: 14,
-          height: 14,
-          decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(2)),
-        ),
+        mark,
         const SizedBox(width: 6),
         Text(label, style: small),
       ],
+    );
+    Widget swatch(Color fill, [Widget? child]) => Container(
+      width: 14,
+      height: 14,
+      decoration: BoxDecoration(color: fill, borderRadius: BorderRadius.circular(2)),
+      child: child,
     );
 
     return Wrap(
@@ -368,84 +501,110 @@ class _Legend extends StatelessWidget {
       runSpacing: 8,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        swatch(colors.primary, 'Logged'),
-        swatch(colors.surfaceContainerHighest, 'Nothing logged'),
-        if (hasOffDays) swatch(colors.surfaceContainerHighest.withValues(alpha: 0.35), 'Not due'),
+        item(swatch(color), 'Logged'),
+        item(swatch(palette.line), 'Nothing logged'),
+        if (hasOffDays) item(swatch(palette.line.withValues(alpha: 0.35)), 'Not due'),
+        if (hasSkipped)
+          item(
+            swatch(
+              palette.line.withValues(alpha: 0.35),
+              Center(child: Container(width: 6, height: 1.5, color: palette.muted)),
+            ),
+            'Skipped',
+          ),
         if (weekly) ...[
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 14,
-                height: 14,
-                color: colors.secondary,
-                child: Icon(Icons.check, size: 12, color: colors.onSecondary),
-              ),
-              const SizedBox(width: 6),
-              Text('Week met', style: small),
-            ],
+          item(
+            Container(
+              width: 14,
+              height: 14,
+              color: colors.secondary,
+              child: Icon(Icons.check, size: 12, color: colors.onSecondary),
+            ),
+            'Week met',
           ),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.close, size: 13, color: colors.onSurfaceVariant),
-              const SizedBox(width: 4),
-              Text('Week missed', style: small),
-            ],
-          ),
+          item(Icon(Icons.close, size: 13, color: colors.onSurfaceVariant), 'Week missed'),
         ],
       ],
     );
   }
 }
 
-/// Asks for one day's value: a switch for booleans, a number for counters.
-class _ValueDialog extends StatefulWidget {
-  const _ValueDialog({required this.habit, required this.date, required this.value});
+/// Changes one day: its value (a switch for yes/no habits, a number for
+/// counters), whether it is skipped, and its note.
+class _DayDialog extends StatefulWidget {
+  const _DayDialog({required this.habit, required this.date, required this.entry});
 
   final Habit habit;
   final DateTime date;
-  final int value;
+  final DayEntry entry;
 
   @override
-  State<_ValueDialog> createState() => _ValueDialogState();
+  State<_DayDialog> createState() => _DayDialogState();
 }
 
-class _ValueDialogState extends State<_ValueDialog> {
-  late final _controller = TextEditingController(text: '${widget.value}');
-  late bool _checked = widget.value > 0;
+class _DayDialogState extends State<_DayDialog> {
+  late final _value = TextEditingController(text: '${widget.entry.value}');
+  late final _note = TextEditingController(text: widget.entry.note);
+  late bool _checked = widget.entry.value > 0;
+  late bool _skipped = widget.entry.skipped;
 
   @override
   void dispose() {
-    _controller.dispose();
+    _value.dispose();
+    _note.dispose();
     super.dispose();
   }
 
   void _save() {
     final value = widget.habit.kind == HabitKind.boolean
         ? (_checked ? 1 : 0)
-        : int.tryParse(_controller.text) ?? widget.value;
-    Navigator.pop(context, value);
+        : int.tryParse(_value.text) ?? widget.entry.value;
+    Navigator.pop(context, DayEntry(value: value, skipped: _skipped, note: _note.text.trim()));
   }
 
   @override
   Widget build(BuildContext context) => AlertDialog(
     title: Text(formatDate(widget.date)),
-    content: widget.habit.kind == HabitKind.boolean
-        ? SwitchListTile(
+    content: SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (widget.habit.kind == HabitKind.boolean)
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Done'),
+              value: _checked,
+              onChanged: (checked) => setState(() => _checked = checked),
+            )
+          else
+            TextField(
+              controller: _value,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              decoration: InputDecoration(
+                labelText: widget.habit.unit.isEmpty ? 'Value' : widget.habit.unit,
+              ),
+              onSubmitted: (_) => _save(),
+            ),
+          SwitchListTile(
             contentPadding: EdgeInsets.zero,
-            title: const Text('Done'),
-            value: _checked,
-            onChanged: (checked) => setState(() => _checked = checked),
-          )
-        : TextField(
-            controller: _controller,
-            autofocus: true,
-            keyboardType: TextInputType.number,
-            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            decoration: const InputDecoration(labelText: 'Value'),
-            onSubmitted: (_) => _save(),
+            title: const Text('Skipped'),
+            subtitle: const Text('Does not break the streak'),
+            value: _skipped,
+            onChanged: (skipped) => setState(() => _skipped = skipped),
           ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _note,
+            maxLength: 500,
+            minLines: 1,
+            maxLines: 4,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: const InputDecoration(labelText: 'Note', counterText: ''),
+          ),
+        ],
+      ),
+    ),
     actions: [
       TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
       FilledButton(onPressed: _save, child: const Text('Save')),

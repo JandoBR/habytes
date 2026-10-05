@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../api/models.dart';
 import '../theme.dart';
 
 const weekdayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -134,28 +135,46 @@ class SectionTitle extends StatelessWidget {
 }
 
 /// The mark that says a habit is logged: an empty outline, or filled with the
-/// highlighter. Square for yes/no habits, round for counters.
+/// highlighter. Square for yes/no habits, round for counters. A skipped day
+/// shows a dash instead.
 class Stamp extends StatelessWidget {
-  const Stamp({super.key, required this.marked, this.round = false, this.onTap, this.size = 28});
+  const Stamp({
+    super.key,
+    required this.marked,
+    this.skipped = false,
+    this.round = false,
+    this.color,
+    this.onTap,
+    this.size = 28,
+  });
 
   final bool marked;
+  final bool skipped;
   final bool round;
+
+  /// The outline; the palette's ink if not given.
+  final Color? color;
   final VoidCallback? onTap;
   final double size;
 
   @override
   Widget build(BuildContext context) {
     final palette = AppPalette.of(context);
+    final outline = skipped ? palette.line : color ?? palette.ink;
     final box = AnimatedContainer(
       duration: const Duration(milliseconds: 120),
       width: size,
       height: size,
       decoration: BoxDecoration(
         color: marked ? palette.highlight : Colors.transparent,
-        border: Border.all(color: palette.ink, width: 1.5),
+        border: Border.all(color: outline, width: 1.5),
         borderRadius: BorderRadius.circular(round ? size : 5),
       ),
-      child: marked ? Icon(Icons.check, size: size * 0.68, color: palette.onHighlight) : null,
+      child: marked
+          ? Icon(Icons.check, size: size * 0.68, color: palette.onHighlight)
+          : skipped
+          ? Icon(Icons.remove, size: size * 0.6, color: palette.muted)
+          : null,
     );
     // The same footprint with or without a tap handler, so rows line up; the
     // padding makes a finger-sized target around the small mark.
@@ -165,6 +184,56 @@ class Stamp extends StatelessWidget {
       checked: marked,
       child: InkResponse(onTap: onTap, radius: size, child: padded),
     );
+  }
+}
+
+/// The shown week, one square per day: filled when the day counted, faded
+/// when only partly, a dash when skipped, and faint when the habit was not due.
+class WeekStrip extends StatelessWidget {
+  const WeekStrip({super.key, required this.habit, required this.view, required this.color});
+
+  final TodayHabit habit;
+  final TodayView view;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    if (habit.weekValues.length != 7) return const SizedBox.shrink();
+    final palette = AppPalette.of(context);
+    final start = parseYmd(view.weekStartDate);
+    final shown = view.dayIndex;
+    const size = 10.0;
+
+    Widget day(int i) {
+      final value = habit.weekValues[i];
+      final due = habit.weekdays?.contains(start.add(Duration(days: i)).weekday) ?? true;
+      // A weekly habit has no daily goal: any amount is a day that counted.
+      final met = habit.schedule == Schedule.weekly ? value > 0 : value >= habit.goal;
+      final Color fill;
+      if (met) {
+        fill = color;
+      } else if (value > 0) {
+        fill = color.withValues(alpha: 0.4);
+      } else if (!due) {
+        fill = palette.line.withValues(alpha: 0.35);
+      } else {
+        fill = palette.line;
+      }
+      return Container(
+        width: size,
+        height: size,
+        margin: const EdgeInsets.only(right: 3),
+        decoration: BoxDecoration(
+          color: fill,
+          border: i == shown ? Border.all(color: palette.ink, width: 1.5) : null,
+        ),
+        child: habit.weekSkipped[i] && value == 0
+            ? Center(child: Container(width: 5, height: 1.5, color: palette.muted))
+            : null,
+      );
+    }
+
+    return Row(mainAxisSize: MainAxisSize.min, children: [for (var i = 0; i < 7; i++) day(i)]);
   }
 }
 

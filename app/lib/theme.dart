@@ -125,6 +125,19 @@ const _paletteName = String.fromEnvironment('PALETTE', defaultValue: 'riso');
   _ => _riso,
 };
 
+/// The colour a habit is drawn in, by its name. `ink` is the palette's own.
+Color habitInk(BuildContext context, String name) {
+  final dark = Theme.of(context).brightness == Brightness.dark;
+  return switch (name) {
+    'red' => dark ? const Color(0xFFFF8A75) : const Color(0xFFCF3F2B),
+    'green' => dark ? const Color(0xFF7FD3A6) : const Color(0xFF1C7A53),
+    'violet' => dark ? const Color(0xFFB9A2F5) : const Color(0xFF6A45B8),
+    'orange' => dark ? const Color(0xFFFFAA66) : const Color(0xFFCB6412),
+    'teal' => dark ? const Color(0xFF6FD0D8) : const Color(0xFF0F7884),
+    _ => AppPalette.of(context).ink,
+  };
+}
+
 const displayFont = 'Bricolage Grotesque';
 const bodyFont = 'Instrument Sans';
 const monoFont = 'DM Mono';

@@ -8,6 +8,7 @@ import '../platform/native.dart';
 import '../platform/nfc.dart';
 import '../state/auth.dart';
 import '../state/data.dart';
+import '../theme.dart';
 import '../widgets/common.dart';
 
 /// Creates a habit, or edits the one with [habitId].
@@ -28,6 +29,10 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
   HabitKind _kind = HabitKind.boolean;
   Schedule _schedule = Schedule.daily;
   Set<int> _weekdays = {1, 2, 3, 4, 5};
+  final _unit = TextEditingController();
+  String _color = 'ink';
+  String? _categoryId;
+  TimeOfDay? _reminder;
 
   Habit? _habit;
   Object? _loadError;
@@ -47,6 +52,7 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
     _name.dispose();
     _description.dispose();
     _goal.dispose();
+    _unit.dispose();
     super.dispose();
   }
 
@@ -71,6 +77,13 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
         _kind = habit.kind;
         _schedule = habit.schedule;
         _weekdays = habit.weekdays?.toSet() ?? _weekdays;
+        _unit.text = habit.unit;
+        _color = habit.color;
+        _categoryId = habit.categoryId;
+        final time = habit.reminderTime?.split(':');
+        _reminder = time == null
+            ? null
+            : TimeOfDay(hour: int.parse(time[0]), minute: int.parse(time[1]));
       });
     } on Exception catch (error) {
       if (mounted) setState(() => _loadError = error);
@@ -115,6 +128,11 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
     final api = ref.read(apiProvider);
     final goal = _hasGoal ? int.parse(_goal.text) : 1;
     final weekdays = _schedule == Schedule.weekdays ? (_weekdays.toList()..sort()) : null;
+    final unit = _kind == HabitKind.counter ? _unit.text.trim() : '';
+    final reminder = _reminder == null
+        ? null
+        : '${_reminder!.hour.toString().padLeft(2, '0')}:'
+              '${_reminder!.minute.toString().padLeft(2, '0')}';
 
     await _run(() async {
       if (_isNew) {
@@ -125,6 +143,10 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
           schedule: _schedule,
           weekdays: weekdays,
           goal: goal,
+          unit: unit,
+          color: _color,
+          categoryId: _categoryId,
+          reminderTime: reminder,
         );
       } else {
         await api.updateHabit(widget.habitId!, {
@@ -133,9 +155,52 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
           'schedule': _schedule.name,
           'weekdays': weekdays,
           'goal': goal,
+          'unit': unit,
+          'color': _color,
+          'category_id': _categoryId,
+          'reminder_time': reminder,
         });
       }
     });
+  }
+
+  Future<void> _newCategory() async {
+    final controller = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('New category'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 60,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(labelText: 'Name', hintText: 'Health'),
+          onSubmitted: (value) => Navigator.pop(context, value),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+    if (name == null || name.trim().isEmpty || !mounted) return;
+    await guard(context, () async {
+      final category = await ref.read(apiProvider).createCategory(name.trim());
+      ref.invalidate(categoriesProvider);
+      if (mounted) setState(() => _categoryId = category.id);
+    });
+  }
+
+  Future<void> _pickReminder() async {
+    final time = await showTimePicker(
+      context: context,
+      initialTime: _reminder ?? const TimeOfDay(hour: 20, minute: 0),
+    );
+    if (time != null && mounted) setState(() => _reminder = time);
   }
 
   Future<void> _archive() =>
@@ -273,6 +338,73 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
               validator: _validateGoal,
             ),
           ],
+          if (_kind == HabitKind.counter) ...[
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _unit,
+              maxLength: 20,
+              decoration: const InputDecoration(
+                labelText: 'Unit (optional)',
+                hintText: 'pages, ml, minutes',
+                counterText: '',
+              ),
+            ),
+          ],
+          const SizedBox(height: 24),
+          Text('Colour', style: Theme.of(context).textTheme.labelLarge),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 10,
+            children: [
+              for (final color in habitColors)
+                Tooltip(
+                  message: color,
+                  child: InkResponse(
+                    onTap: () => setState(() => _color = color),
+                    radius: 24,
+                    child: Container(
+                      width: 34,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        color: habitInk(context, color),
+                        borderRadius: BorderRadius.circular(5),
+                      ),
+                      child: _color == color
+                          ? Icon(Icons.check, size: 20, color: AppPalette.of(context).paper)
+                          : null,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          _categoryField(context),
+          const SizedBox(height: 16),
+          InputDecorator(
+            decoration: InputDecoration(
+              labelText: 'Reminder',
+              helperText: Native.available
+                  ? 'A notification at this time if it is not done yet.'
+                  : 'Shown by the Android app, at this time, if it is not done yet.',
+              helperMaxLines: 2,
+              contentPadding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
+            ),
+            child: Row(
+              children: [
+                Expanded(child: Text(_reminder?.format(context) ?? 'Off')),
+                if (_reminder != null)
+                  IconButton(
+                    tooltip: 'Remove reminder',
+                    icon: const Icon(Icons.close, size: 20),
+                    onPressed: () => setState(() => _reminder = null),
+                  ),
+                TextButton(
+                  onPressed: _pickReminder,
+                  child: Text(_reminder == null ? 'Set a time' : 'Change'),
+                ),
+              ],
+            ),
+          ),
           const SizedBox(height: 32),
           FilledButton(
             onPressed: _busy ? null : _save,
@@ -290,4 +422,30 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
       ),
     ),
   );
+
+  /// The habit's category: none, an existing one, or a new one made on the spot.
+  Widget _categoryField(BuildContext context) {
+    const create = '\u0000new';
+    final categories = ref.watch(categoriesProvider).value ?? const <Category>[];
+    // A category that is gone must not leave the dropdown without its value.
+    final current = categories.any((c) => c.id == _categoryId) ? _categoryId : null;
+    return DropdownButtonFormField<String?>(
+      key: ValueKey('$current-${categories.length}'),
+      initialValue: current,
+      decoration: const InputDecoration(labelText: 'Category'),
+      items: [
+        const DropdownMenuItem(value: null, child: Text('None')),
+        for (final category in categories)
+          DropdownMenuItem(value: category.id, child: Text(category.name)),
+        const DropdownMenuItem(value: create, child: Text('New category…')),
+      ],
+      onChanged: (value) {
+        if (value == create) {
+          _newCategory();
+        } else {
+          setState(() => _categoryId = value);
+        }
+      },
+    );
+  }
 }

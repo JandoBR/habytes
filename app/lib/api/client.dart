@@ -60,7 +60,11 @@ class ApiClient {
     try {
       json = response.body.isEmpty ? null : jsonDecode(response.body);
     } on FormatException {
-      throw ApiException(response.statusCode, 'bad_response', 'Unexpected response from the server.');
+      throw ApiException(
+        response.statusCode,
+        'bad_response',
+        'Unexpected response from the server.',
+      );
     }
     if (response.statusCode >= 400) {
       final error = json is Map ? json['error'] : null;
@@ -123,6 +127,10 @@ class ApiClient {
     required Schedule schedule,
     List<int>? weekdays,
     required int goal,
+    String unit = '',
+    String color = 'ink',
+    String? categoryId,
+    String? reminderTime,
   }) async => Habit.fromJson(
     await _send(
       'POST',
@@ -134,6 +142,10 @@ class ApiClient {
         'schedule': schedule.name,
         'weekdays': weekdays,
         'goal': goal,
+        'unit': unit,
+        'color': color,
+        'category_id': categoryId,
+        'reminder_time': reminderTime,
       },
     ),
   );
@@ -157,16 +169,21 @@ class ApiClient {
   Future<TodayView> today(String date) async =>
       TodayView.fromJson(await _send('GET', '/api/v1/today', query: {'date': date}));
 
-  /// Raw values by date for one habit, over an inclusive range of at most 366 days.
-  Future<Map<String, int>> entries({
+  /// One habit's days by date, over an inclusive range of at most 366 days.
+  Future<Map<String, DayEntry>> entries({
     required String habitId,
     required String from,
     required String to,
   }) async {
-    final json =
-        await _send('GET', '/api/v1/entries', query: {'from': from, 'to': to, 'habit_id': habitId})
-            as List;
-    return {for (final entry in json) entry['date'] as String: entry['value'] as int};
+    final json = await _send(
+      'GET',
+      '/api/v1/entries',
+      query: {'from': from, 'to': to, 'habit_id': habitId},
+    ) as List;
+    return {
+      for (final entry in json)
+        entry['date'] as String: DayEntry.fromJson(entry as Map<String, dynamic>),
+    };
   }
 
   Future<EntryStatus> increment(String habitId, String date, int delta) async =>
@@ -178,10 +195,47 @@ class ApiClient {
         ),
       );
 
-  Future<EntryStatus> setValue(String habitId, String date, int value) async =>
-      EntryStatus.fromJson(
-        await _send('PUT', '/api/v1/habits/$habitId/entries/$date', body: {'value': value}),
+  Future<EntryStatus> setValue(String habitId, String date, int value) =>
+      setDay(habitId, date, value: value);
+
+  /// Changes one day. Whatever is left out keeps its value.
+  Future<EntryStatus> setDay(
+    String habitId,
+    String date, {
+    int? value,
+    bool? skipped,
+    String? note,
+  }) async => EntryStatus.fromJson(
+    await _send(
+      'PUT',
+      '/api/v1/habits/$habitId/entries/$date',
+      body: {'value': ?value, 'skipped': ?skipped, 'note': ?note},
+    ),
+  );
+
+  // Categories
+
+  Future<List<Category>> categories() async {
+    final json = await _send('GET', '/api/v1/categories') as List;
+    return json.map((c) => Category.fromJson(c as Map<String, dynamic>)).toList();
+  }
+
+  Future<Category> createCategory(String name) async =>
+      Category.fromJson(await _send('POST', '/api/v1/categories', body: {'name': name}));
+
+  Future<Category> updateCategory(String id, {String? name, bool? collapsed}) async =>
+      Category.fromJson(
+        await _send(
+          'PATCH',
+          '/api/v1/categories/$id',
+          body: {'name': ?name, 'collapsed': ?collapsed},
+        ),
       );
+
+  Future<void> deleteCategory(String id) => _send('DELETE', '/api/v1/categories/$id');
+
+  Future<void> reorderCategories(List<String> ids) =>
+      _send('PUT', '/api/v1/categories/order', body: {'ids': ids});
 
   // Tokens
 
