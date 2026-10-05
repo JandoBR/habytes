@@ -5,12 +5,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.glance.ColorFilter
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
-import androidx.glance.GlanceTheme
 import androidx.glance.Image
 import androidx.glance.ImageProvider
 import androidx.glance.action.ActionParameters
@@ -27,20 +26,36 @@ import androidx.glance.appwidget.lazy.LazyColumn
 import androidx.glance.appwidget.lazy.items
 import androidx.glance.appwidget.provideContent
 import androidx.glance.background
+import androidx.glance.color.ColorProvider
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
+import androidx.glance.layout.Column
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
+import androidx.glance.layout.height
 import androidx.glance.layout.padding
 import androidx.glance.layout.size
 import androidx.glance.layout.width
+import androidx.glance.text.FontFamily
+import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextAlign
 import androidx.glance.text.TextStyle
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 private val habitIdKey = ActionParameters.Key<String>("habit_id")
+
+// The app's palette (lib/theme.dart), light and dark. The stamps are drawables
+// and take the same colours from res/values/colors.xml.
+private val paper = ColorProvider(day = Color(0xFFF2EEE3), night = Color(0xFF0E1330))
+private val ink = ColorProvider(day = Color(0xFF1E2C74), night = Color(0xFFEDE8DA))
+private val muted = ColorProvider(day = Color(0xFF666C8E), night = Color(0xFF9A9FC0))
+private val line = ColorProvider(day = Color(0xFFD6D0BF), night = Color(0xFF2B3263))
+private val highlight = ColorProvider(day = Color(0xFFFFD23F), night = Color(0xFFFFD23F))
+private val onHighlight = ColorProvider(day = Color(0xFF17225C), night = Color(0xFF17225C))
 
 /** The list of habits due today. Tapping a row logs it. */
 class HabitWidget : GlanceAppWidget() {
@@ -51,17 +66,14 @@ class HabitWidget : GlanceAppWidget() {
             val version by Widgets.version.collectAsState()
             val signedIn = remember(version) { sync.signedIn }
             val cache = remember(version) { sync.snapshot() }
-            GlanceTheme {
-                Box(
-                    modifier = GlanceModifier
-                        .fillMaxSize()
-                        .appWidgetBackground()
-                        .background(GlanceTheme.colors.widgetBackground)
-                        .cornerRadius(20.dp)
-                        .padding(vertical = 8.dp),
-                ) {
-                    Content(signedIn, cache)
-                }
+            Box(
+                modifier = GlanceModifier
+                    .fillMaxSize()
+                    .appWidgetBackground()
+                    .background(paper)
+                    .cornerRadius(14.dp),
+            ) {
+                Content(signedIn, cache)
             }
         }
     }
@@ -72,9 +84,44 @@ private fun Content(signedIn: Boolean, cache: Cache?) {
     when {
         !signedIn -> Message("Sign in")
         cache == null -> Message("Open HaBytes to load your habits")
-        cache.dueHabits.isEmpty() -> Message("Nothing due today")
-        else -> LazyColumn(modifier = GlanceModifier.fillMaxSize()) {
-            items(cache.dueHabits, itemId = { it.id.hashCode().toLong() }) { HabitRow(it) }
+        else -> Column(modifier = GlanceModifier.fillMaxSize()) {
+            Header(cache)
+            Box(modifier = GlanceModifier.fillMaxWidth().height(1.dp).background(line)) {}
+            if (cache.dueHabits.isEmpty()) {
+                Message("Nothing due today")
+            } else {
+                LazyColumn(modifier = GlanceModifier.fillMaxSize()) {
+                    items(cache.dueHabits, itemId = { it.id.hashCode().toLong() }) { HabitRow(it) }
+                }
+            }
+        }
+    }
+}
+
+/** The day and how much of it is done. Opens the app. */
+@Composable
+private fun Header(cache: Cache) {
+    val due = cache.dueHabits
+    val day = cache.date.format(DateTimeFormatter.ofPattern("EEEE d MMM", Locale.ENGLISH))
+    Row(
+        modifier = GlanceModifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 9.dp)
+            .clickable(actionStartActivity<MainActivity>()),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = day,
+            maxLines = 1,
+            style = TextStyle(color = ink, fontSize = 15.sp, fontWeight = FontWeight.Bold),
+            modifier = GlanceModifier.defaultWeight(),
+        )
+        if (due.isNotEmpty()) {
+            Text(
+                text = "${due.count { it.done }}/${due.size} done",
+                maxLines = 1,
+                style = TextStyle(color = muted, fontSize = 12.sp, fontFamily = FontFamily.Monospace),
+            )
         }
     }
 }
@@ -88,53 +135,62 @@ private fun Message(text: String) {
     ) {
         Text(
             text = text,
-            style = TextStyle(color = GlanceTheme.colors.onSurface, fontSize = 15.sp, textAlign = TextAlign.Center),
+            style = TextStyle(color = ink, fontSize = 15.sp, textAlign = TextAlign.Center),
         )
     }
 }
 
 @Composable
 private fun HabitRow(habit: Habit) {
-    val icon = when {
-        habit.kind == Kind.BOOLEAN && habit.checkedToday -> R.drawable.ic_widget_checked
-        habit.kind == Kind.BOOLEAN -> R.drawable.ic_widget_unchecked
-        habit.done -> R.drawable.ic_widget_done
-        else -> R.drawable.ic_widget_add
+    val boolean = habit.kind == Kind.BOOLEAN
+    // A weekly habit can be checked today without being done for the week.
+    val marked = if (boolean) habit.checkedToday else habit.done
+    val stamp = when {
+        boolean && marked -> R.drawable.widget_stamp_marked
+        boolean -> R.drawable.widget_stamp_empty
+        marked -> R.drawable.widget_round_marked
+        else -> R.drawable.widget_round_empty
     }
-    val filled = habit.done || habit.checkedToday
-    val dimmed = if (habit.done) GlanceTheme.colors.onSurfaceVariant else GlanceTheme.colors.onSurface
+    val detail = listOf(habit.progress, habit.streakText).filter { it.isNotEmpty() }.joinToString(" · ")
     Row(
         modifier = GlanceModifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 9.dp)
+            .padding(horizontal = 16.dp, vertical = 8.dp)
             .clickable(actionRunCallback<TapAction>(actionParametersOf(habitIdKey to habit.id))),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Image(
-            provider = ImageProvider(icon),
-            contentDescription = if (habit.done) "Completed" else "Not completed",
-            colorFilter = ColorFilter.tint(
-                if (filled) GlanceTheme.colors.primary else GlanceTheme.colors.outline,
-            ),
+            provider = ImageProvider(stamp),
+            contentDescription = if (marked) "Logged" else "Not logged",
             modifier = GlanceModifier.size(24.dp),
         )
         Spacer(GlanceModifier.width(12.dp))
-        Text(
-            text = habit.name,
-            maxLines = 1,
-            style = TextStyle(color = dimmed, fontSize = 15.sp),
-            modifier = GlanceModifier.defaultWeight(),
-        )
-        if (habit.progress.isNotEmpty()) {
-            Spacer(GlanceModifier.width(8.dp))
-            Text(
-                text = habit.progress,
-                maxLines = 1,
-                style = TextStyle(
-                    color = if (habit.done) GlanceTheme.colors.primary else GlanceTheme.colors.onSurfaceVariant,
-                    fontSize = 13.sp,
-                ),
-            )
+        Column(modifier = GlanceModifier.defaultWeight()) {
+            // The highlighter: a stroke behind the name of what is done.
+            Box(
+                modifier = if (habit.done) {
+                    GlanceModifier.background(highlight).cornerRadius(3.dp).padding(horizontal = 4.dp)
+                } else {
+                    GlanceModifier
+                },
+            ) {
+                Text(
+                    text = habit.name,
+                    maxLines = 1,
+                    style = TextStyle(
+                        color = if (habit.done) onHighlight else ink,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                    ),
+                )
+            }
+            if (detail.isNotEmpty()) {
+                Text(
+                    text = detail,
+                    maxLines = 1,
+                    style = TextStyle(color = muted, fontSize = 12.sp, fontFamily = FontFamily.Monospace),
+                )
+            }
         }
     }
 }

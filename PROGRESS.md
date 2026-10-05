@@ -81,7 +81,8 @@ Still to do:
   release build installs and starts against `https://habits.example.com`; its
   widget, background sync and NFC scan have not been re-checked. Not tried at
   all yet: day and week change on the widget, a revoked token.
-* The widget still uses the system's default colours, not the app's palette.
+* The widget is restyled in the app's palette and shows streaks, but that
+  version has not been looked at on a phone yet.
 * App icon (still the Flutter default).
 
 ## Build and deployment
@@ -111,6 +112,12 @@ Still to do:
   `/srv/appdata/habitd`. The CI runner has the host's Docker socket, which is
   what lets the workflow deploy and prune; pruning also relies on the registry
   stack allowing deletes (`REGISTRY_STORAGE_DELETE_ENABLED`).
+
+## Beyond the spec
+
+* Streaks (`server/src/streak.rs`): current and best, counted in due days or
+  in weeks, reported by `/today` and by every write. Shown on Today, on the
+  History screen and in the widget, which also keeps them right offline.
 
 ## Look
 

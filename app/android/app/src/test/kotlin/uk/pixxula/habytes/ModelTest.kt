@@ -17,7 +17,8 @@ internal fun habit(
     goal: Int = 1,
     value: Int = 0,
     periodValue: Int = value,
-) = Habit(id, "Habit $id", kind, schedule, weekdays, goal, value, periodValue)
+    streak: Int = 0,
+) = Habit(id, "Habit $id", kind, schedule, weekdays, goal, value, periodValue, streak)
 
 internal fun cache(vararg habits: Habit, date: LocalDate = MONDAY, weekStart: LocalDate = MONDAY) =
     Cache(date, weekStart, fetchedAt = 0, habits = habits.toList())
@@ -132,6 +133,60 @@ class ModelTest {
     }
 
     @Test
+    fun `completing a habit extends its streak and undoing takes it back`() {
+        val start = cache(
+            habit("bool", streak = 4),
+            habit("count", Kind.COUNTER, goal = 2, value = 1, streak = 6),
+            habit("weekly", schedule = Schedule.WEEKLY, goal = 2, periodValue = 1, streak = 3),
+        )
+        val checked = start.applying(Op.Set("1", "bool", MONDAY, 1))
+        assertEquals(5, checked.habit("bool")!!.streak)
+        assertEquals(4, checked.applying(Op.Set("2", "bool", MONDAY, 0)).habit("bool")!!.streak)
+
+        // Only reaching the goal counts, and going past it does not count twice.
+        val reached = start.applying(Op.Increment("1", "count", MONDAY, 1))
+        assertEquals(7, reached.habit("count")!!.streak)
+        assertEquals(7, reached.applying(Op.Increment("2", "count", MONDAY, 1)).habit("count")!!.streak)
+
+        assertEquals(4, start.applying(Op.Set("1", "weekly", MONDAY, 1)).habit("weekly")!!.streak)
+    }
+
+    @Test
+    fun `a day that ended undone ends the streak`() {
+        val start = cache(
+            habit("done", value = 1, streak = 5),
+            habit("missed", streak = 5),
+            // Due on Monday and Wednesday only.
+            habit("mon-wed", schedule = Schedule.WEEKDAYS, weekdays = listOf(1, 3), value = 1, streak = 5),
+        )
+        val tuesday = start.rolledTo(MONDAY.plusDays(1))
+        assertEquals(5, tuesday.habit("done")!!.streak)
+        assertEquals(0, tuesday.habit("missed")!!.streak)
+        assertEquals(5, tuesday.habit("mon-wed")!!.streak)
+
+        // Skipping a due day altogether ends it too; days off do not.
+        val thursday = start.rolledTo(MONDAY.plusDays(3))
+        assertEquals(0, thursday.habit("done")!!.streak)
+        assertEquals(0, thursday.habit("mon-wed")!!.streak)
+        assertEquals(5, start.rolledTo(MONDAY.plusDays(2)).habit("mon-wed")!!.streak)
+    }
+
+    @Test
+    fun `a week that ended short ends a weekly streak`() {
+        val start = cache(
+            habit("met", schedule = Schedule.WEEKLY, goal = 2, periodValue = 2, streak = 3),
+            habit("short", schedule = Schedule.WEEKLY, goal = 2, periodValue = 1, streak = 3),
+        )
+        // Within the week nothing changes.
+        assertEquals(3, start.rolledTo(MONDAY.plusDays(6)).habit("short")!!.streak)
+        val nextWeek = start.rolledTo(MONDAY.plusDays(7))
+        assertEquals(3, nextWeek.habit("met")!!.streak)
+        assertEquals(0, nextWeek.habit("short")!!.streak)
+        // A whole week with nothing logged ends even a met one.
+        assertEquals(0, start.rolledTo(MONDAY.plusDays(14)).habit("met")!!.streak)
+    }
+
+    @Test
     fun `only habits due on the cache date are listed`() {
         val start = cache(
             habit("daily"),
@@ -160,7 +215,7 @@ class ModelTest {
     @Test
     fun `state survives a round trip through JSON`() {
         val start = cache(
-            habit("a", Kind.COUNTER, Schedule.WEEKDAYS, weekdays = listOf(1, 5), goal = 8, value = 3),
+            habit("a", Kind.COUNTER, Schedule.WEEKDAYS, weekdays = listOf(1, 5), goal = 8, value = 3, streak = 4),
             habit("b", schedule = Schedule.WEEKLY, goal = 3, value = 1, periodValue = 2),
         )
         assertEquals(start, cacheFromJson(start.toJson()))
@@ -174,7 +229,7 @@ class ModelTest {
         val body = """
             {"date":"2026-10-05","week_start_date":"2026-10-05","habits":[
               {"id":"a","name":"Drink water","kind":"counter","schedule":"weekdays","weekdays":[1,2,3],
-               "goal":8,"due":true,"value":3,"period_value":3,"done":false},
+               "goal":8,"due":true,"value":3,"period_value":3,"done":false,"streak":12,"best_streak":30},
               {"id":"b","name":"Gym","kind":"boolean","schedule":"weekly","weekdays":null,
                "goal":3,"due":true,"value":1,"period_value":2,"done":false}]}
         """
@@ -182,9 +237,10 @@ class ModelTest {
         assertEquals(MONDAY, cache.date)
         assertEquals(42, cache.fetchedAt)
         assertEquals(
-            Habit("a", "Drink water", Kind.COUNTER, Schedule.WEEKDAYS, listOf(1, 2, 3), 8, 3, 3),
+            Habit("a", "Drink water", Kind.COUNTER, Schedule.WEEKDAYS, listOf(1, 2, 3), 8, 3, 3, 12),
             cache.habits[0],
         )
-        assertEquals(Habit("b", "Gym", Kind.BOOLEAN, Schedule.WEEKLY, null, 3, 1, 2), cache.habits[1])
+        // A server from before streaks sends none.
+        assertEquals(Habit("b", "Gym", Kind.BOOLEAN, Schedule.WEEKLY, null, 3, 1, 2, 0), cache.habits[1])
     }
 }

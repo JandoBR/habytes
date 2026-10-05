@@ -179,18 +179,25 @@ class _HabitRow extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Highlighted(habit.name, on: habit.done, style: text.titleMedium, maxLines: 2),
-                  if (habit.progress.isNotEmpty) ...[
+                  if (habit.progress.isNotEmpty || habit.streak > 1) ...[
                     const SizedBox(height: 7),
                     Row(
                       children: [
-                        SizedBox(
-                          width: 84,
-                          child: Meter(value: habit.periodValue, goal: habit.goal),
-                        ),
-                        const SizedBox(width: 10),
+                        if (habit.progress.isNotEmpty) ...[
+                          SizedBox(
+                            width: 84,
+                            child: Meter(value: habit.periodValue, goal: habit.goal),
+                          ),
+                          const SizedBox(width: 10),
+                        ],
                         Flexible(
                           child: Text(
-                            habit.progress,
+                            [
+                              if (habit.progress.isNotEmpty) habit.progress,
+                              // One period in a row is not worth announcing.
+                              if (habit.streak > 1)
+                                '${streakLength(habit.streak, habit.schedule)} running',
+                            ].join(' · '),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: monoStyle(context, size: 12).copyWith(color: palette.muted),

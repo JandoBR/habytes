@@ -47,9 +47,11 @@ class NfcScanActivity : Activity() {
         }
     }
 
-    /** `Drink water 4/8`, `Gym 2/3 this week`, `Meditate ✓`. */
+    /** `Drink water 4/8`, `Gym 2/3 this week`, `Meditate ✓ · 12 days`. */
     private fun describe(habit: Habit): String =
-        "${habit.name} ${habit.progress.ifEmpty { "✓" }}"
+        listOf("${habit.name} ${habit.progress.ifEmpty { "✓" }}", habit.streakText)
+            .filter { it.isNotEmpty() }
+            .joinToString(" · ")
 
     private fun toast(text: String) {
         Toast.makeText(applicationContext, text, Toast.LENGTH_SHORT).show()

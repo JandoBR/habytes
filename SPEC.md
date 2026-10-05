@@ -295,12 +295,15 @@ Habit object:
 Status object, returned by every write and by `/today`:
 
 ```json
-{ "habit_id": "...", "date": "2026-10-04", "value": 1, "period_value": 2, "done": false }
+{ "habit_id": "...", "date": "2026-10-04", "value": 1, "period_value": 2, "done": false,
+  "streak": 4, "best_streak": 9 }
 ```
+
+`streak` is how many periods in a row the habit has been done, and `best_streak` the longest such run ever. A period is a due day for `daily` and `weekdays` habits and a week for `weekly` ones; days a `weekdays` habit is not due neither count nor break a streak. The running period does not break one either: a streak ends only once a period has passed without the habit being done.
 
 | Method and path | Purpose |
 | --- | --- |
-| `GET /today?date=YYYY-MM-DD` | Non-archived habits in order with their status for that day: `{ "date": "...", "week_start_date": "...", "habits": [{ id, name, kind, schedule, weekdays, goal, due, value, period_value, done }] }`. `due` is false only for a `weekdays` habit on a day outside its mask. `week_start_date` is the first day of the week containing `date`. `date` defaults to today in the user's time zone. This is the widget's read endpoint. |
+| `GET /today?date=YYYY-MM-DD` | Non-archived habits in order with their status for that day: `{ "date": "...", "week_start_date": "...", "habits": [{ id, name, kind, schedule, weekdays, goal, due, value, period_value, done, streak, best_streak }] }`. `due` is false only for a `weekdays` habit on a day outside its mask. `week_start_date` is the first day of the week containing `date`. `date` defaults to today in the user's time zone. This is the widget's read endpoint. |
 | `GET /entries?from=&to=&habit_id=` | Raw entries `{ habit_id, date, value }` in an inclusive date range of at most 366 days. `habit_id` is optional. Days with no row are omitted. |
 | `POST /habits/{id}/entries/{date}/increment` | Body `{ "op_id": "<uuid>", "delta": 1 }`. Returns the status. |
 | `PUT /habits/{id}/entries/{date}` | Body `{ "value": 5 }`. Returns the status. |
@@ -378,7 +381,7 @@ State:
 
 ```
 cache:  { date, week_start_date, fetched_at,
-          habits: [{ id, name, kind, schedule, weekdays, goal, value, period_value }] }
+          habits: [{ id, name, kind, schedule, weekdays, goal, value, period_value, streak }] }
 outbox: [{ op_id, habit_id, date, type: "increment" | "set", delta | value }]
 ```
 
@@ -493,7 +496,7 @@ scopes        = ["openid", "profile", "email"]
 
 ## 13. Later
 
-* Streaks and statistics.
+* Statistics beyond streaks.
 * Reminders and notifications.
 * iOS app and widget.
 * Monthly and interval schedules.

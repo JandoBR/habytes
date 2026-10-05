@@ -23,6 +23,12 @@ enum HabitKind { boolean, counter }
 
 enum Schedule { daily, weekdays, weekly }
 
+/// `12 days`, `1 week`: a streak's length in the habit's own period.
+String streakLength(int streak, Schedule schedule) {
+  final unit = schedule == Schedule.weekly ? 'week' : 'day';
+  return '$streak $unit${streak == 1 ? '' : 's'}';
+}
+
 class User {
   const User({
     required this.id,
@@ -95,6 +101,8 @@ class EntryStatus {
     required this.value,
     required this.periodValue,
     required this.done,
+    required this.streak,
+    required this.bestStreak,
   });
 
   factory EntryStatus.fromJson(Map<String, dynamic> json) => EntryStatus(
@@ -103,6 +111,8 @@ class EntryStatus {
     value: json['value'] as int,
     periodValue: json['period_value'] as int,
     done: json['done'] as bool,
+    streak: json['streak'] as int? ?? 0,
+    bestStreak: json['best_streak'] as int? ?? 0,
   );
 
   final String habitId;
@@ -110,6 +120,10 @@ class EntryStatus {
   final int value;
   final int periodValue;
   final bool done;
+
+  /// Periods done in a row: due days, or weeks for a weekly habit.
+  final int streak;
+  final int bestStreak;
 }
 
 /// One row of `GET /today`.
@@ -124,6 +138,8 @@ class TodayHabit {
     required this.value,
     required this.periodValue,
     required this.done,
+    required this.streak,
+    required this.bestStreak,
   });
 
   factory TodayHabit.fromJson(Map<String, dynamic> json) => TodayHabit(
@@ -136,6 +152,8 @@ class TodayHabit {
     value: json['value'] as int,
     periodValue: json['period_value'] as int,
     done: json['done'] as bool,
+    streak: json['streak'] as int? ?? 0,
+    bestStreak: json['best_streak'] as int? ?? 0,
   );
 
   final String id;
@@ -152,6 +170,10 @@ class TodayHabit {
   final int periodValue;
   final bool done;
 
+  /// Periods done in a row: due days, or weeks for a weekly habit.
+  final int streak;
+  final int bestStreak;
+
   TodayHabit withStatus(EntryStatus status) => TodayHabit(
     id: id,
     name: name,
@@ -162,6 +184,8 @@ class TodayHabit {
     value: status.value,
     periodValue: status.periodValue,
     done: status.done,
+    streak: status.streak,
+    bestStreak: status.bestStreak,
   );
 
   /// `3/8 today`, `2/3 this week`, or nothing for a plain daily checkbox.

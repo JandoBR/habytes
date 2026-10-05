@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use axum::{
     Json,
@@ -19,11 +19,26 @@ use crate::{
         week_start_date,
     },
     state::AppState,
+    streak::{Rules, Streaks, streaks},
     util::now,
 };
 
 /// The longest range `GET /entries` will return, in days, inclusive.
 const MAX_RANGE_DAYS: i64 = 366;
+
+fn rules(habit: &Habit, week_start: i64) -> Rules {
+    Rules {
+        weekly: habit.schedule == "weekly",
+        weekdays: habit.weekdays,
+        goal: habit.goal,
+        week_start,
+    }
+}
+
+/// The last day of the week containing `date`.
+fn week_end(date: NaiveDate, week_start: i64) -> NaiveDate {
+    week_start_date(date, week_start) + Days::new(6)
+}
 
 /// One habit's status on one day, as returned by every write.
 pub async fn status(
@@ -32,34 +47,54 @@ pub async fn status(
     week_start: i64,
     date: NaiveDate,
 ) -> sqlx::Result<Value> {
-    let value: i64 =
-        sqlx::query_scalar("SELECT value FROM entries WHERE habit_id = ? AND date = ?")
-            .bind(habit.id)
-            .bind(date.to_string())
-            .fetch_optional(&mut *conn)
-            .await?
-            .unwrap_or(0);
+    // The habit's whole history up to the end of the day's week: streaks need all of it.
+    let rows = sqlx::query("SELECT date, value FROM entries WHERE habit_id = ? AND date <= ?")
+        .bind(habit.id)
+        .bind(week_end(date, week_start).to_string())
+        .fetch_all(&mut *conn)
+        .await?;
+    let entries: BTreeMap<NaiveDate, i64> = rows
+        .iter()
+        .filter_map(|row| Some((row.get::<String, _>("date").parse().ok()?, row.get("value"))))
+        .collect();
+    Ok(status_json(habit, week_start, date, &entries))
+}
+
+/// The status fields shared by writes and `/today`, from a habit's values by day.
+fn status_fields(
+    habit: &Habit,
+    week_start: i64,
+    date: NaiveDate,
+    entries: &BTreeMap<NaiveDate, i64>,
+) -> (i64, i64, Streaks) {
+    let value = entries.get(&date).copied().unwrap_or(0);
     let period_value = if habit.schedule == "weekly" {
         let start = week_start_date(date, week_start);
-        sqlx::query_scalar(
-            "SELECT COALESCE(SUM(value), 0) FROM entries
-             WHERE habit_id = ? AND date BETWEEN ? AND ?",
-        )
-        .bind(habit.id)
-        .bind(start.to_string())
-        .bind((start + Days::new(6)).to_string())
-        .fetch_one(&mut *conn)
-        .await?
+        entries.range(start..=start + Days::new(6)).map(|(_, value)| value).sum()
     } else {
         value
     };
-    Ok(json!({
+    // A weekly habit is measured on its whole week, so its streak is too.
+    let as_of = if habit.schedule == "weekly" { week_end(date, week_start) } else { date };
+    (value, period_value, streaks(&rules(habit, week_start), entries, as_of))
+}
+
+fn status_json(
+    habit: &Habit,
+    week_start: i64,
+    date: NaiveDate,
+    entries: &BTreeMap<NaiveDate, i64>,
+) -> Value {
+    let (value, period_value, streaks) = status_fields(habit, week_start, date, entries);
+    json!({
         "habit_id": habit.id,
         "date": date.to_string(),
         "value": value,
         "period_value": period_value,
         "done": period_value >= habit.goal,
-    }))
+        "streak": streaks.current,
+        "best_streak": streaks.best,
+    })
 }
 
 /// Adds `delta` to one day's value, clamped, unless `op_id` was already applied.
@@ -203,38 +238,33 @@ pub async fn today(
     .fetch_all(&state.db)
     .await?;
 
-    // Every entry of the week, in one query: the day's value and the week's sum.
+    // Every entry up to the end of the week, in one query: streaks need the whole history.
     let rows = sqlx::query(
         "SELECT e.habit_id, e.date, e.value FROM entries e
          JOIN habits h ON h.id = e.habit_id
-         WHERE h.user_id = ? AND h.archived = 0 AND e.date BETWEEN ? AND ?",
+         WHERE h.user_id = ? AND h.archived = 0 AND e.date <= ?",
     )
     .bind(auth.user.id)
-    .bind(week_start.to_string())
     .bind((week_start + Days::new(6)).to_string())
     .fetch_all(&state.db)
     .await?;
-    let today = date.to_string();
-    let mut values: HashMap<Uuid, i64> = HashMap::new();
-    let mut week_sums: HashMap<Uuid, i64> = HashMap::new();
+    let mut entries: HashMap<Uuid, BTreeMap<NaiveDate, i64>> = HashMap::new();
     for row in rows {
-        let habit_id: Uuid = row.get("habit_id");
-        let value: i64 = row.get("value");
-        *week_sums.entry(habit_id).or_default() += value;
-        if row.get::<String, _>("date") == today {
-            values.insert(habit_id, value);
+        if let Ok(day) = row.get::<String, _>("date").parse() {
+            entries.entry(row.get("habit_id")).or_default().insert(day, row.get("value"));
         }
     }
+    let none = BTreeMap::new();
 
     let habits: Vec<Value> = habits
         .iter()
         .map(|habit| {
-            let value = values.get(&habit.id).copied().unwrap_or(0);
-            let period_value = if habit.schedule == "weekly" {
-                week_sums.get(&habit.id).copied().unwrap_or(0)
-            } else {
-                value
-            };
+            let (value, period_value, streaks) = status_fields(
+                habit,
+                auth.user.week_start,
+                date,
+                entries.get(&habit.id).unwrap_or(&none),
+            );
             json!({
                 "id": habit.id,
                 "name": habit.name,
@@ -246,12 +276,14 @@ pub async fn today(
                 "value": value,
                 "period_value": period_value,
                 "done": period_value >= habit.goal,
+                "streak": streaks.current,
+                "best_streak": streaks.best,
             })
         })
         .collect();
 
     Ok(Json(json!({
-        "date": today,
+        "date": date.to_string(),
         "week_start_date": week_start.to_string(),
         "habits": habits,
     })))

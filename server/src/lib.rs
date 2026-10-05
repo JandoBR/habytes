@@ -9,6 +9,7 @@ pub mod oidc;
 pub mod ratelimit;
 pub mod schedule;
 pub mod state;
+pub mod streak;
 pub mod util;
 pub mod web;
 

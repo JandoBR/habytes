@@ -23,12 +23,22 @@ data class Habit(
     val value: Int,
     /** What completion is measured on: [value], or the week's sum for weekly habits. */
     val periodValue: Int,
+    /** Periods done in a row: due days, or weeks for a weekly habit. */
+    val streak: Int = 0,
 ) {
     val done: Boolean get() = periodValue >= goal
 
     val checkedToday: Boolean get() = value > 0
 
     fun isDueOn(date: LocalDate): Boolean = weekdays?.contains(date.dayOfWeek.value) ?: true
+
+    /** `12 days`, `3 weeks`; nothing for a streak too short to mention. */
+    val streakText: String
+        get() = when {
+            streak < 2 -> ""
+            schedule == Schedule.WEEKLY -> "$streak weeks"
+            else -> "$streak days"
+        }
 
     /** `3/8`, `2/3 this week`, or nothing for a plain daily checkbox. */
     val progress: String
@@ -44,7 +54,35 @@ data class Habit(
     fun withValue(newValue: Int): Habit {
         val clamped = newValue.coerceIn(0, maxValue)
         val period = if (schedule == Schedule.WEEKLY) periodValue + (clamped - value) else clamped
-        return copy(value = clamped, periodValue = period.coerceAtLeast(0))
+        val changed = copy(value = clamped, periodValue = period.coerceAtLeast(0))
+        // Completing the running period extends the streak; undoing it takes that back.
+        val streak = when {
+            changed.done && !done -> streak + 1
+            !changed.done && done -> (streak - 1).coerceAtLeast(0)
+            else -> streak
+        }
+        return changed.copy(streak = streak)
+    }
+
+    /** The streak once the periods from [from] up to, but not including, [to] are over. */
+    internal fun streakAfter(from: LocalDate, to: LocalDate, weeksPassed: Long): Int {
+        if (!to.isAfter(from)) return streak
+        if (schedule == Schedule.WEEKLY) {
+            return when {
+                weeksPassed == 0L -> streak
+                // The week that just ended counts only if its goal was met.
+                weeksPassed == 1L && done -> streak
+                else -> 0
+            }
+        }
+        if (isDueOn(from) && !done) return 0
+        // Any due day skipped entirely in between also ends it.
+        var day = from.plusDays(1)
+        while (day.isBefore(to)) {
+            if (isDueOn(day)) return 0
+            day = day.plusDays(1)
+        }
+        return streak
     }
 }
 
@@ -88,7 +126,8 @@ data class Cache(
 
     /**
      * The cache as it should look on [today], without asking the server:
-     * a new day starts every value at 0, and a new week starts weekly totals at 0.
+     * a new day starts every value at 0, a new week starts weekly totals at 0,
+     * and a period that ended without the habit done ends its streak.
      */
     fun rolledTo(today: LocalDate): Cache {
         if (today == date) return this
@@ -99,7 +138,11 @@ data class Cache(
             weekStartDate = weekStartDate.plusDays(weeks * 7),
             habits = habits.map {
                 val keepPeriod = sameWeek && it.schedule == Schedule.WEEKLY
-                it.copy(value = 0, periodValue = if (keepPeriod) it.periodValue else 0)
+                it.copy(
+                    value = 0,
+                    periodValue = if (keepPeriod) it.periodValue else 0,
+                    streak = it.streakAfter(date, today, weeks),
+                )
             },
         )
     }

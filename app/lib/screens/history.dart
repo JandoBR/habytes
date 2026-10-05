@@ -7,6 +7,7 @@ import '../api/models.dart';
 import '../platform/native.dart';
 import '../state/auth.dart';
 import '../state/data.dart';
+import '../theme.dart';
 import '../widgets/common.dart';
 import 'manage.dart';
 
@@ -27,6 +28,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
   final DateTime _today = localToday();
   late final DateTime _first = _today.subtract(const Duration(days: 365));
   Habit? _habit;
+  TodayHabit? _status;
   Map<String, int> _entries = {};
   Object? _error;
 
@@ -42,18 +44,26 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
       final habits = await ref.read(habitsProvider.future);
       final habit = habits.where((h) => h.id == widget.habitId).firstOrNull;
       if (habit == null) throw Exception('This habit no longer exists.');
-      final entries = await ref
-          .read(apiProvider)
-          .entries(habitId: habit.id, from: ymd(_first), to: ymd(_today));
+      final api = ref.read(apiProvider);
+      final entries = await api.entries(habitId: habit.id, from: ymd(_first), to: ymd(_today));
+      final status = await _fetchStatus(habit);
       if (mounted) {
         setState(() {
           _habit = habit;
           _entries = entries;
+          _status = status;
         });
       }
     } on Exception catch (error) {
       if (mounted) setState(() => _error = error);
     }
+  }
+
+  /// The habit's row for today, which carries its streaks. Archived habits have none.
+  Future<TodayHabit?> _fetchStatus(Habit habit) async {
+    if (habit.archived) return null;
+    final view = await ref.read(apiProvider).today(ymd(_today));
+    return view.habits.where((h) => h.id == habit.id).firstOrNull;
   }
 
   Future<void> _edit(DateTime date) async {
@@ -66,7 +76,13 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     if (value == null || value == current || !mounted) return;
     await guard(context, () async {
       final status = await ref.read(apiProvider).setValue(habit.id, ymd(date), value);
-      if (mounted) setState(() => _entries = {..._entries, status.date: status.value});
+      final streaks = await _fetchStatus(habit);
+      if (mounted) {
+        setState(() {
+          _entries = {..._entries, status.date: status.value};
+          _status = streaks;
+        });
+      }
       ref.invalidate(todayProvider);
       Native.refreshWidgets();
     });
@@ -99,6 +115,27 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                   const SizedBox(height: 4),
                   Text(habit.description),
                 ],
+                if (_status != null) ...[
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _Figure(
+                          label: 'Current streak',
+                          value: streakLength(_status!.streak, habit.schedule),
+                          marked: _status!.streak > 0 && _status!.streak == _status!.bestStreak,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _Figure(
+                          label: 'Best streak',
+                          value: streakLength(_status!.bestStreak, habit.schedule),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 24),
                 _Heatmap(
                   habit: habit,
@@ -120,6 +157,34 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                 ),
               ],
             ),
+    );
+  }
+}
+
+/// A labelled number, highlighted when it is a record.
+class _Figure extends StatelessWidget {
+  const _Figure({required this.label, required this.value, this.marked = false});
+
+  final String label;
+  final String value;
+  final bool marked;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label.toUpperCase(),
+          style: text.titleSmall!.copyWith(color: AppPalette.of(context).muted),
+        ),
+        const SizedBox(height: 4),
+        Padding(
+          padding: const EdgeInsets.only(left: 5),
+          child: Highlighted(value, on: marked, style: text.headlineSmall),
+        ),
+      ],
     );
   }
 }

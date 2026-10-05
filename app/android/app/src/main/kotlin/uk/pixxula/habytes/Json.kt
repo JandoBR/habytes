@@ -15,6 +15,7 @@ private fun habitFromJson(json: JSONObject) = Habit(
     goal = json.getInt("goal"),
     value = json.getInt("value"),
     periodValue = json.getInt("period_value"),
+    streak = json.optInt("streak", 0),
 )
 
 private fun Habit.toJson() = JSONObject()
@@ -26,6 +27,7 @@ private fun Habit.toJson() = JSONObject()
     .put("goal", goal)
     .put("value", value)
     .put("period_value", periodValue)
+    .put("streak", streak)
 
 /** Reads a stored cache, or the body of `GET /today` (which has no `fetched_at`). */
 fun cacheFromJson(text: String, fetchedAt: Long? = null): Cache {

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The app's palette (lib/theme.dart) for the widget's drawables. The same
+     values are in HabitWidget.kt for its text and backgrounds. -->
+<resources>
+    <color name="widget_ink">#1E2C74</color>
+    <color name="widget_highlight">#FFD23F</color>
+    <color name="widget_on_highlight">#17225C</color>
+</resources>

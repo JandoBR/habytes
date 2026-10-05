@@ -255,7 +255,10 @@ async fn completion_boolean_daily() {
     let status = app.set(&token, &habit, MON, 1).await;
     assert_eq!(
         status,
-        json!({ "habit_id": habit, "date": MON, "value": 1, "period_value": 1, "done": true })
+        json!({
+            "habit_id": habit, "date": MON, "value": 1, "period_value": 1, "done": true,
+            "streak": 1, "best_streak": 1,
+        })
     );
     // Completion is per day.
     assert_eq!(today(&app, &token, TUE).await["habits"][0]["done"], false);
@@ -960,4 +963,41 @@ async fn app_pages_need_a_session() {
         let response = app.send(Request::get(path).body(Body::empty()).unwrap()).await;
         assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
     }
+}
+
+#[tokio::test]
+async fn streaks_are_reported_by_today_and_by_writes() {
+    let app = TestApp::new().await;
+    let token = app.user("alice").await;
+    let daily = app.habit(&token, boolean("daily")).await;
+    let weekly = app
+        .habit(&token, json!({ "name": "Gym", "kind": "boolean", "schedule": "weekly", "goal": 2 }))
+        .await;
+
+    app.set(&token, &daily, MON, 1).await;
+    app.set(&token, &daily, TUE, 1).await;
+    // A write answers with the streak as it now stands.
+    let status = app.set(&token, &daily, WED, 1).await;
+    assert_eq!(status["streak"], 3);
+    assert_eq!(status["best_streak"], 3);
+
+    app.set(&token, &weekly, MON, 1).await;
+    let status = app.set(&token, &weekly, TUE, 1).await;
+    assert_eq!(status["streak"], 1);
+
+    let row = |body: &Value, id: &str| {
+        body["habits"].as_array().unwrap().iter().find(|h| h["id"] == id).unwrap().clone()
+    };
+    // The next Monday is still open, so nothing is broken yet...
+    let body = today(&app, &token, NEXT_MON).await;
+    assert_eq!(row(&body, &daily)["streak"], 0);
+    assert_eq!(row(&body, &daily)["best_streak"], 3);
+    assert_eq!(row(&body, &weekly)["streak"], 1);
+    // ...and looking back at Tuesday shows the streak as it was then.
+    let body = today(&app, &token, TUE).await;
+    assert_eq!(row(&body, &daily)["streak"], 2);
+
+    // Unchecking takes the day back out.
+    let status = app.set(&token, &daily, WED, 0).await;
+    assert_eq!(status["streak"], 2);
 }
