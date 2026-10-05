@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../state/auth.dart';
+import '../widgets/common.dart';
 
 /// Android: asks for the habitd server's address.
 class ServerScreen extends ConsumerStatefulWidget {
@@ -46,6 +47,8 @@ class _ServerScreenState extends ConsumerState<ServerScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            const Align(alignment: Alignment.centerLeft, child: Logo()),
+            const SizedBox(height: 20),
             Text('HaBytes', style: Theme.of(context).textTheme.headlineMedium),
             const SizedBox(height: 8),
             const Text('Enter the address of your habitd server.'),

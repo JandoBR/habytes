@@ -81,7 +81,6 @@ Still to do:
   release build installs and starts against `https://habits.example.com`; its
   widget, background sync and NFC scan have not been re-checked. Not tried at
   all yet: day and week change on the widget, a revoked token.
-* App icon (still the Flutter default).
 
 ## Build and deployment
 
@@ -131,8 +130,19 @@ The spec is the starting point, not the limit. Added since:
   when it goes off the app refreshes, and notifies if the habit is due, not
   done and not skipped. The notification has a button that logs it.
 
-Not looked at on a phone yet: the restyled widget, category headings in it,
-and reminders.
+* **Quick add** (`QuickAddActivity.kt`): the widget's `+` opens a small sheet
+  over the home screen that creates a habit (name, yes/no or a daily counter)
+  without opening the app. It needs a connection.
+* **Logo**: an H made of bits with the crossbar in the highlighter.
+  `scripts/make-icons` draws it into every web and Android icon; the adaptive
+  launcher icon is `ic_launcher_foreground.xml`.
+
+Seen working on the phone: the restyled widget, its header opening the app and
+the quick-add sheet. Not tried there yet: category headings and skipped marks
+in the widget, actually adding a habit from the sheet, and reminders.
+
+The web app keeps Flutter's semantics tree on, so every control is also a real
+element: for screen readers, and for keyboard link-hint extensions.
 
 ## Look
 

@@ -15,4 +15,13 @@
     <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
         <item name="android:windowBackground">?android:colorBackground</item>
     </style>
+    <!-- The quick-add sheet over the home screen, in the app's palette. -->
+    <style name="QuickAddTheme" parent="@android:style/Theme.DeviceDefault.Dialog.NoActionBar">
+        <item name="android:windowBackground">@drawable/quick_add_background</item>
+        <item name="android:windowMinWidthMajor">88%</item>
+        <item name="android:windowMinWidthMinor">88%</item>
+        <item name="android:colorAccent">@color/widget_ink</item>
+        <item name="android:textColorPrimary">@color/widget_ink</item>
+        <item name="android:textColorHint">@color/widget_muted</item>
+    </style>
 </resources>

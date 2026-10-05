@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <color name="widget_paper">#0E1330</color>
+    <color name="widget_surface">#161C40</color>
     <color name="widget_ink">#EDE8DA</color>
     <color name="widget_muted">#9A9FC0</color>
     <color name="widget_line">#2B3263</color>

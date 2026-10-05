@@ -2,4 +2,14 @@
 <resources>
     <string name="app_name">HaBytes</string>
     <string name="widget_description">Today\'s habits. Tap one to log it.</string>
+    <string name="quick_add_title">New habit</string>
+    <string name="quick_add_name">Name</string>
+    <string name="quick_add_boolean">Yes / no</string>
+    <string name="quick_add_counter">Counter</string>
+    <string name="quick_add_goal">Goal per day</string>
+    <string name="quick_add_unit">Unit (optional)</string>
+    <string name="quick_add_hint">Every day. Schedule, colour and the rest are under More options.</string>
+    <string name="quick_add_more">More options</string>
+    <string name="quick_add_cancel">Cancel</string>
+    <string name="quick_add_add">Add</string>
 </resources>

@@ -28,6 +28,13 @@
                  the Android process has started. This theme is visible to the user
                  while the Flutter UI initializes. After that, this theme continues
                  to determine the Window background behind the Flutter UI. -->
+            <!-- The app is never opened through a link, and the widget's launch
+                 intents carry a data URI that Flutter would otherwise take for
+                 a route ("page not found"). -->
+            <meta-data
+              android:name="flutter_deeplinking_enabled"
+              android:value="false"
+              />
             <meta-data
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
@@ -76,6 +83,15 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/habit_widget_info"/>
         </receiver>
+        <!-- The widget's "+": a small sheet for adding a habit. -->
+        <activity
+            android:name=".QuickAddActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@style/QuickAddTheme"
+            android:windowSoftInputMode="stateVisible|adjustResize"/>
         <receiver android:name=".ReminderReceiver" android:exported="false"/>
         <receiver android:name=".ReminderActionReceiver" android:exported="false"/>
         <receiver android:name=".BootReceiver" android:exported="true">

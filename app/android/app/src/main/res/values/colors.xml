@@ -2,6 +2,9 @@
 <!-- The app's palette (lib/theme.dart) for the widget's drawables. The same
      values are in HabitWidget.kt for its text and backgrounds. -->
 <resources>
+    <color name="ic_launcher_background">#F2EEE3</color>
+    <color name="widget_paper">#F2EEE3</color>
+    <color name="widget_surface">#FBF8F0</color>
     <color name="widget_ink">#1E2C74</color>
     <color name="widget_muted">#666C8E</color>
     <color name="widget_line">#D6D0BF</color>

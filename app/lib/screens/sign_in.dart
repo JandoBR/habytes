@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../state/auth.dart';
+import '../widgets/common.dart';
 
 /// Android: starts the login in a browser tab.
 class SignInScreen extends ConsumerStatefulWidget {
@@ -45,6 +46,8 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              const Align(alignment: Alignment.centerLeft, child: Logo()),
+              const SizedBox(height: 20),
               Text('Sign in', style: Theme.of(context).textTheme.headlineMedium),
               const SizedBox(height: 8),
               Text(server),

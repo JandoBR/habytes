@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="20dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/quick_add_title"
+        android:textColor="@color/widget_ink"
+        android:textSize="21sp"
+        android:textStyle="bold" />
+
+    <EditText
+        android:id="@+id/name"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginTop="16dp"
+        android:background="@drawable/quick_add_field"
+        android:hint="@string/quick_add_name"
+        android:importantForAutofill="no"
+        android:inputType="textCapSentences"
+        android:maxLength="100"
+        android:paddingHorizontal="12dp"
+        android:textColor="@color/widget_ink"
+        android:textSize="16sp" />
+
+    <RadioGroup
+        android:id="@+id/kind"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:layout_marginTop="14dp"
+        android:checkedButton="@+id/kind_boolean"
+        android:orientation="horizontal">
+
+        <RadioButton
+            android:id="@+id/kind_boolean"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:background="@drawable/quick_add_segment"
+            android:button="@null"
+            android:gravity="center"
+            android:text="@string/quick_add_boolean"
+            android:textColor="@color/quick_add_segment_text"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <RadioButton
+            android:id="@+id/kind_counter"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:background="@drawable/quick_add_segment"
+            android:button="@null"
+            android:gravity="center"
+            android:text="@string/quick_add_counter"
+            android:textColor="@color/quick_add_segment_text"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+    </RadioGroup>
+
+    <LinearLayout
+        android:id="@+id/counter_fields"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginTop="14dp"
+        android:orientation="horizontal"
+        android:visibility="gone">
+
+        <EditText
+            android:id="@+id/goal"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:background="@drawable/quick_add_field"
+            android:hint="@string/quick_add_goal"
+            android:importantForAutofill="no"
+            android:inputType="number"
+            android:maxLength="6"
+            android:paddingHorizontal="12dp"
+            android:textColor="@color/widget_ink"
+            android:textSize="16sp" />
+
+        <EditText
+            android:id="@+id/unit"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginStart="10dp"
+            android:layout_weight="1"
+            android:background="@drawable/quick_add_field"
+            android:hint="@string/quick_add_unit"
+            android:importantForAutofill="no"
+            android:inputType="text"
+            android:maxLength="20"
+            android:paddingHorizontal="12dp"
+            android:textColor="@color/widget_ink"
+            android:textSize="16sp" />
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:text="@string/quick_add_hint"
+        android:textColor="@color/widget_muted"
+        android:textSize="12sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:layout_marginTop="18dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/more"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:text="@string/quick_add_more"
+            android:textColor="@color/widget_ink"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <TextView
+            android:id="@+id/cancel"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:paddingHorizontal="14dp"
+            android:text="@string/quick_add_cancel"
+            android:textColor="@color/widget_ink"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/add"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:background="@drawable/quick_add_primary"
+            android:gravity="center"
+            android:paddingHorizontal="22dp"
+            android:text="@string/quick_add_add"
+            android:textColor="@color/widget_paper"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+</LinearLayout>

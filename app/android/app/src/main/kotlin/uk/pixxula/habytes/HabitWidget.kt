@@ -114,7 +114,7 @@ private fun Header(cache: Cache) {
     Row(
         modifier = GlanceModifier
             .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 9.dp)
+            .padding(start = 16.dp, end = 12.dp, top = 9.dp, bottom = 8.dp)
             .clickable(actionStartActivity<MainActivity>()),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -129,6 +129,21 @@ private fun Header(cache: Cache) {
                 text = "${due.count { it.done }}/${due.size} done",
                 maxLines = 1,
                 style = TextStyle(color = muted, fontSize = 12.sp, fontFamily = FontFamily.Monospace),
+            )
+        }
+        Spacer(GlanceModifier.width(10.dp))
+        // Quick add: a small sheet over the home screen.
+        Box(
+            modifier = GlanceModifier
+                .size(28.dp)
+                .background(ink)
+                .cornerRadius(5.dp)
+                .clickable(actionStartActivity<QuickAddActivity>()),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "+",
+                style = TextStyle(color = paper, fontSize = 18.sp, fontWeight = FontWeight.Bold),
             )
         }
     }

@@ -305,3 +305,43 @@ class Meter extends StatelessWidget {
     );
   }
 }
+
+/// The HaBytes mark: an H made of bits, its crossbar set in the highlighter.
+class Logo extends StatelessWidget {
+  const Logo({super.key, this.size = 56});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    final gap = size / 14;
+    final block = (size - 2 * gap) / 3;
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          for (var row = 0; row < 3; row++)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                for (var col = 0; col < 3; col++)
+                  Container(
+                    width: block,
+                    height: block,
+                    // Both uprights, and the middle of the crossbar.
+                    color: col != 1
+                        ? palette.ink
+                        : row == 1
+                        ? palette.highlight
+                        : null,
+                  ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+}

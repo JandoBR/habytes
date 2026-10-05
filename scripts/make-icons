@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Draws the HaBytes logo into every icon the web app and the Android app use.
+# Needs ImageMagick with SVG support. Run it after changing the logo.
+#
+# The logo is an H made of bits: seven blocks of a 3x3 grid in ink, with the
+# crossbar one set in the highlighter, on paper.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+paper="#F2EEE3" ink="#1E2C74" mark="#FFD23F"
+
+# logo <canvas> <block> <gap> <corner radius of the canvas> [background]
+logo() {
+  local size=$1 block=$2 gap=$3 radius=$4 background=${5:-$paper}
+  local origin=$(( (size - 3 * block - 2 * gap) / 2 )) step=$(( block + gap ))
+  echo "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 $size $size\">"
+  [ "$background" = none ] ||
+    echo "  <rect width=\"$size\" height=\"$size\" rx=\"$radius\" fill=\"$background\"/>"
+  for row in 0 1 2; do
+    for col in 0 1 2; do
+      # The H: both uprights, and the middle of the crossbar.
+      [ "$col" = 1 ] && [ "$row" != 1 ] && continue
+      local fill=$ink
+      [ "$col" = 1 ] && fill=$mark
+      echo "  <rect x=\"$(( origin + col * step ))\" y=\"$(( origin + row * step ))\"" \
+        "width=\"$block\" height=\"$block\" fill=\"$fill\"/>"
+    done
+  done
+  echo "</svg>"
+}
+
+render() { magick -background none -density 384 "$1" -resize "$2x$2" "$3"; }
+
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+
+logo 512 96 24 96 > app/assets/logo.svg            # rounded tile: favicon, launcher
+logo 512 80 20 0 > "$tmp/maskable.svg"             # full bleed, logo in the safe zone
+
+render app/assets/logo.svg 32 app/web/favicon.png
+render app/assets/logo.svg 192 app/web/icons/Icon-192.png
+render app/assets/logo.svg 512 app/web/icons/Icon-512.png
+render "$tmp/maskable.svg" 192 app/web/icons/Icon-maskable-192.png
+render "$tmp/maskable.svg" 512 app/web/icons/Icon-maskable-512.png
+
+res=app/android/app/src/main/res
+for spec in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
+  render app/assets/logo.svg "${spec#*:}" "$res/mipmap-${spec%:*}/ic_launcher.png"
+done
+echo "Icons written."

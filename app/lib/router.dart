@@ -17,11 +17,16 @@ String startLocation = '/';
 final routerProvider = Provider<GoRouter>((ref) {
   final router = GoRouter(
     initialLocation: startLocation,
+    // An address that leads nowhere is not worth an error page.
+    onException: (_, _, router) => router.go('/'),
     routes: [
       ShellRoute(
         builder: (context, state, child) => AppShell(location: state.matchedLocation, child: child),
         routes: [
-          GoRoute(path: '/', pageBuilder: (_, _) => const NoTransitionPage(child: TodayScreen())),
+          GoRoute(
+            path: '/',
+            pageBuilder: (_, _) => const NoTransitionPage(child: TodayScreen()),
+          ),
           GoRoute(
             path: '/habits',
             pageBuilder: (_, _) => const NoTransitionPage(child: ManageScreen()),

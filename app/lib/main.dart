@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_web_plugins/url_strategy.dart';
 import 'package:go_router/go_router.dart';
@@ -16,6 +17,10 @@ import 'widgets/common.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   usePathUrlStrategy();
+  // The web app draws on a canvas. With semantics always on, every control also
+  // exists as a real element, for screen readers and for keyboard tools that
+  // look for things to click (link hints).
+  if (kIsWeb) SemanticsBinding.instance.ensureSemantics();
   if (kIsWeb) startLocation = browserLocation();
   // Keep the address bar in step with pushed screens, so reloads and links work.
   GoRouter.optionURLReflectsImperativeAPIs = true;
@@ -35,6 +40,7 @@ class _HabytesAppState extends ConsumerState<HabytesApp> with WidgetsBindingObse
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     Native.refreshWidgets();
+    _openLaunchRoute();
   }
 
   @override
@@ -45,7 +51,22 @@ class _HabytesAppState extends ConsumerState<HabytesApp> with WidgetsBindingObse
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) Native.refreshWidgets();
+    if (state == AppLifecycleState.resumed) {
+      Native.refreshWidgets();
+      _openLaunchRoute();
+    }
+  }
+
+  /// Goes to the screen the widget asked for, once signed in.
+  Future<void> _openLaunchRoute() async {
+    final route = await Native.takeLaunchRoute();
+    if (route == null || !mounted) return;
+    if (ref.read(authProvider).value is SignedIn) {
+      ref.read(routerProvider).push(route);
+    } else {
+      // The router does not exist yet; it opens there when it does.
+      startLocation = route;
+    }
   }
 
   @override

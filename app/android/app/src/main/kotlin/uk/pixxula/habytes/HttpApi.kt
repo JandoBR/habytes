@@ -18,6 +18,10 @@ class HttpApi : Api {
     override fun today(credentials: Credentials, date: LocalDate): ApiResponse =
         request(credentials, "GET", "/api/v1/today?date=$date", null)
 
+    /** `POST /habits` with a ready JSON body. Not part of [Api]: it is never queued. */
+    fun createHabit(credentials: Credentials, body: String): ApiResponse =
+        request(credentials, "POST", "/api/v1/habits", body)
+
     private fun request(credentials: Credentials, method: String, path: String, body: String?): ApiResponse {
         val connection = URL(credentials.serverUrl + path).openConnection() as HttpURLConnection
         try {

@@ -12,7 +12,25 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 class MainActivity : FlutterActivity() {
+    companion object {
+        /** A screen of the app to open, e.g. `/habits/new`. */
+        const val EXTRA_ROUTE = "route"
+    }
+
     private val scope = MainScope()
+
+    /** The screen asked for by whoever launched the app, until Dart collects it. */
+    private var launchRoute: String? = null
+
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+        launchRoute = intent?.getStringExtra(EXTRA_ROUTE)
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        intent.getStringExtra(EXTRA_ROUTE)?.let { launchRoute = it }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -65,6 +83,10 @@ class MainActivity : FlutterActivity() {
                             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
                         }
                         result.success(null)
+                    }
+                    "takeLaunchRoute" -> {
+                        result.success(launchRoute)
+                        launchRoute = null
                     }
                     "getTimeZone" -> result.success(ZoneId.systemDefault().id)
                     "getDeviceName" -> result.success(

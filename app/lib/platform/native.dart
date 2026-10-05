@@ -41,6 +41,16 @@ class Native {
     }
   }
 
+  /// The screen the app was asked to open (by the widget, say), once.
+  static Future<String?> takeLaunchRoute() async {
+    if (!available) return null;
+    try {
+      return await _channel.invokeMethod<String>('takeLaunchRoute');
+    } on PlatformException {
+      return null;
+    }
+  }
+
   /// Asks for permission to show notifications, which reminders need.
   static Future<void> requestNotifications() async {
     if (!available) return;
