@@ -33,6 +33,7 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
   String _color = 'ink';
   String? _categoryId;
   TimeOfDay? _reminder;
+  String? _webhookUrl;
 
   Habit? _habit;
   Object? _loadError;
@@ -80,6 +81,7 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
         _unit.text = habit.unit;
         _color = habit.color;
         _categoryId = habit.categoryId;
+        _webhookUrl = habit.webhookUrl;
         final time = habit.reminderTime?.split(':');
         _reminder = time == null
             ? null
@@ -203,6 +205,44 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
     if (time == null || !mounted) return;
     setState(() => _reminder = time);
     await Native.requestNotifications();
+  }
+
+  /// Creates the habit's webhook, or replaces it with a new address.
+  Future<void> _createWebhook({required bool rotate}) async {
+    if (rotate) {
+      final ok = await confirm(
+        context,
+        title: 'Replace the webhook?',
+        message: 'The current address stops working, and whatever uses it needs the new one.',
+        action: 'Replace',
+      );
+      if (!ok || !mounted) return;
+    }
+    await guard(context, () async {
+      final url = await ref.read(apiProvider).createWebhook(widget.habitId!);
+      ref.invalidate(habitsProvider);
+      if (mounted) setState(() => _webhookUrl = url);
+    });
+  }
+
+  Future<void> _removeWebhook() async {
+    final ok = await confirm(
+      context,
+      title: 'Remove the webhook?',
+      message: 'Requests to its address will no longer log this habit.',
+      action: 'Remove',
+    );
+    if (!ok || !mounted) return;
+    await guard(context, () async {
+      await ref.read(apiProvider).deleteWebhook(widget.habitId!);
+      ref.invalidate(habitsProvider);
+      if (mounted) setState(() => _webhookUrl = null);
+    });
+  }
+
+  Future<void> _copyWebhook() async {
+    await Clipboard.setData(ClipboardData(text: _webhookUrl!));
+    if (mounted) showMessage(context, 'Webhook address copied');
   }
 
   Future<void> _archive() =>
@@ -420,10 +460,63 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
               label: const Text('Write NFC tag'),
             ),
           ],
+          if (_habit != null) ..._webhook(context),
         ],
       ),
     ),
   );
+
+  /// The habit's webhook: an address that logs it when something sends a POST there.
+  List<Widget> _webhook(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final palette = AppPalette.of(context);
+    final kind = _kind == HabitKind.counter ? 'adds one (or ?delta=N)' : 'checks it for today';
+    return [
+      const SizedBox(height: 32),
+      Text('Webhook', style: text.labelLarge),
+      const SizedBox(height: 4),
+      Text(
+        'For automations: a POST request to this address $kind. '
+        'Anyone who has the address can log the habit, and nothing else.',
+        style: text.bodySmall!.copyWith(color: palette.muted),
+      ),
+      const SizedBox(height: 12),
+      if (_webhookUrl == null)
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton.icon(
+            onPressed: () => _createWebhook(rotate: false),
+            icon: const Icon(Icons.link),
+            label: const Text('Create webhook'),
+          ),
+        )
+      else ...[
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: palette.surface,
+            border: Border.all(color: palette.line),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: SelectableText(_webhookUrl!, style: monoStyle(context, size: 12)),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          children: [
+            OutlinedButton.icon(
+              onPressed: _copyWebhook,
+              icon: const Icon(Icons.copy, size: 18),
+              label: const Text('Copy'),
+            ),
+            TextButton(onPressed: () => _createWebhook(rotate: true), child: const Text('Replace')),
+            TextButton(onPressed: _removeWebhook, child: const Text('Remove')),
+          ],
+        ),
+      ],
+    ];
+  }
 
   /// The habit's category: none, an existing one, or a new one made on the spot.
   Widget _categoryField(BuildContext context) {

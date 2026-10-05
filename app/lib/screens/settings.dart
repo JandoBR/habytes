@@ -46,15 +46,6 @@ class SettingsScreen extends ConsumerWidget {
                 }),
               ),
             ),
-            const SectionTitle('Webhooks'),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              child: Text(
-                'A POST request to a habit\'s webhook URL logs it for today: one more for a '
-                'counter (or ?delta=N), checked for a yes/no habit.',
-              ),
-            ),
-            const _Webhooks(),
             const SectionTitle('API tokens'),
             const _Tokens(api: true),
             const SectionTitle('Signed-in devices and sessions'),
@@ -87,10 +78,7 @@ class SettingsScreen extends ConsumerWidget {
             TextField(
               controller: controller,
               autocorrect: false,
-              decoration: const InputDecoration(
-                labelText: 'IANA name',
-                hintText: 'America/Bogota',
-              ),
+              decoration: const InputDecoration(labelText: 'IANA name', hintText: 'America/Bogota'),
             ),
             if (deviceZone != null)
               TextButton(
@@ -113,80 +101,6 @@ class SettingsScreen extends ConsumerWidget {
       final updated = await ref.read(apiProvider).updateMe(timezone: zone);
       ref.read(authProvider.notifier).setUser(updated);
     });
-  }
-}
-
-class _Webhooks extends ConsumerWidget {
-  const _Webhooks();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final api = ref.read(apiProvider);
-
-    Future<void> run(Future<void> Function() action, String done) async {
-      if (await guard(context, action)) {
-        ref.invalidate(habitsProvider);
-        if (context.mounted) showMessage(context, done);
-      }
-    }
-
-    Future<void> copy(String url) async {
-      await Clipboard.setData(ClipboardData(text: url));
-      if (context.mounted) showMessage(context, 'Webhook URL copied');
-    }
-
-    return AsyncView(
-      value: ref.watch(habitsProvider),
-      onRetry: () => ref.invalidate(habitsProvider),
-      builder: (habits) {
-        final active = habits.where((h) => !h.archived).toList();
-        if (active.isEmpty) {
-          return const ListTile(title: Text('No habits yet.'));
-        }
-        return Column(
-          children: [
-            for (final habit in active)
-              ListTile(
-                title: Text(habit.name),
-                subtitle: Text(
-                  habit.webhookUrl ?? 'No webhook',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                onTap: habit.webhookUrl == null ? null : () => copy(habit.webhookUrl!),
-                trailing: habit.webhookUrl == null
-                    ? TextButton(
-                        onPressed: () => run(() => api.createWebhook(habit.id), 'Webhook created'),
-                        child: const Text('Create'),
-                      )
-                    : PopupMenuButton<String>(
-                        onSelected: (action) async {
-                          switch (action) {
-                            case 'copy':
-                              await copy(habit.webhookUrl!);
-                            case 'rotate':
-                              final ok = await confirm(
-                                context,
-                                title: 'Rotate webhook?',
-                                message: 'The current URL for "${habit.name}" will stop working.',
-                                action: 'Rotate',
-                              );
-                              if (ok) await run(() => api.createWebhook(habit.id), 'Webhook rotated');
-                            case 'disable':
-                              await run(() => api.deleteWebhook(habit.id), 'Webhook disabled');
-                          }
-                        },
-                        itemBuilder: (context) => const [
-                          PopupMenuItem(value: 'copy', child: Text('Copy URL')),
-                          PopupMenuItem(value: 'rotate', child: Text('Rotate')),
-                          PopupMenuItem(value: 'disable', child: Text('Disable')),
-                        ],
-                      ),
-              ),
-          ],
-        );
-      },
-    );
   }
 }
 
