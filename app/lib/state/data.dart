@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/client.dart';
@@ -14,12 +17,49 @@ final categoriesProvider = FutureProvider<List<Category>>(
 
 final tokensProvider = FutureProvider<List<TokenInfo>>((ref) => ref.watch(apiProvider).tokens());
 
+/// The device's calendar day, kept current while the app is open.
+final currentDayProvider = NotifierProvider<CurrentDay, DateTime>(CurrentDay.new);
+
+class CurrentDay extends Notifier<DateTime> {
+  @override
+  DateTime build() {
+    Timer? timer;
+    var disposed = false;
+    void check() {
+      if (disposed) return;
+      final today = localToday();
+      if (today != state) state = today;
+      // Again just after the next midnight.
+      final now = DateTime.now();
+      final midnight = DateTime(now.year, now.month, now.day + 1);
+      timer?.cancel();
+      timer = Timer(midnight.difference(now) + const Duration(seconds: 1), check);
+    }
+
+    // A timer may not run while the app is in the background.
+    final lifecycle = AppLifecycleListener(onResume: check);
+    ref.onDispose(() {
+      disposed = true;
+      timer?.cancel();
+      lifecycle.dispose();
+    });
+    Future.microtask(check);
+    return localToday();
+  }
+}
+
 /// The day the Today screen is showing.
 final selectedDateProvider = NotifierProvider<SelectedDate, DateTime>(SelectedDate.new);
 
 class SelectedDate extends Notifier<DateTime> {
   @override
-  DateTime build() => localToday();
+  DateTime build() {
+    // Showing today means following it into the next day; another day stays put.
+    ref.listen(currentDayProvider, (previous, next) {
+      if (state == previous) state = next;
+    });
+    return ref.read(currentDayProvider);
+  }
 
   void shift(int days) {
     final next = state.add(Duration(days: days));

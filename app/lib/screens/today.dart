@@ -48,7 +48,7 @@ class _Header extends ConsumerWidget {
     final palette = AppPalette.of(context);
     final text = Theme.of(context).textTheme;
     final date = ref.watch(selectedDateProvider);
-    final isToday = date == localToday();
+    final isToday = date == ref.watch(currentDayProvider);
     final selected = ref.read(selectedDateProvider.notifier);
 
     // Keep the last summary while another day loads, so the header does not jump.

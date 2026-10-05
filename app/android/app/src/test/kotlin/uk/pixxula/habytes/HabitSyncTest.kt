@@ -156,12 +156,12 @@ class HabitSyncTest {
     }
 
     @Test
-    fun `network errors, rate limits and server errors stop and retry later`() {
+    fun `network errors, redirects, rate limits and server errors stop and retry later`() {
         store.cache = cache(habit("a", Kind.COUNTER))
         sync.tap("a")
         sync.tap("a")
 
-        for (status in listOf(-1, 429, 500, 503)) {
+        for (status in listOf(-1, 302, 429, 500, 503)) {
             // The first operation goes through, the second does not.
             api.statuses += listOf(200, status)
             sync.tap("a")
@@ -172,11 +172,11 @@ class HabitSyncTest {
         }
         assertEquals(0, api.todayRequests)
         // The optimistic state is still what the widget shows.
-        assertEquals(6, habitNow("a").value)
+        assertEquals(7, habitNow("a").value)
 
         // Once the server is back everything left is delivered.
         assertEquals(SyncResult.DONE, sync.sync())
-        assertEquals((1..6).map { "op-$it" }.toSet(), api.sent.map { it.opId }.toSet())
+        assertEquals((1..7).map { "op-$it" }.toSet(), api.sent.map { it.opId }.toSet())
         assertTrue(store.outbox.isEmpty())
     }
 

@@ -18,6 +18,7 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -116,7 +117,10 @@ class ReminderReceiver : BroadcastReceiver() {
         CoroutineScope(Dispatchers.Main).launch {
             try {
                 // It may have been done elsewhere: ask the server, but not for long.
-                withTimeoutOrNull(8_000) { Widgets.syncNow(app) }
+                // The request blocks and cannot be cut short, so it runs on its
+                // own and is left to finish if the wait is over first.
+                val sync = CoroutineScope(Dispatchers.IO).async { Widgets.syncNow(app) }
+                withTimeoutOrNull(8_000) { sync.join() }
                 val habit = withContext(Dispatchers.IO) { Widgets.sync(app).snapshot()?.habit(habitId) }
                 if (habit != null && habit.needsReminder(LocalDate.now())) {
                     Reminders.notify(app, habit)

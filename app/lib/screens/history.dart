@@ -27,8 +27,8 @@ class HistoryScreen extends ConsumerStatefulWidget {
 }
 
 class _HistoryScreenState extends ConsumerState<HistoryScreen> {
-  final DateTime _today = localToday();
-  late final DateTime _first = _today.subtract(const Duration(days: 365));
+  DateTime _today = localToday();
+  DateTime get _first => _today.subtract(const Duration(days: 365));
   Habit? _habit;
   TodayHabit? _status;
   Map<String, DayEntry> _entries = {};
@@ -103,6 +103,11 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Left open past midnight: move on to the new day.
+    ref.listen(currentDayProvider, (_, today) {
+      setState(() => _today = today);
+      _load();
+    });
     final habit = _habit;
     return Scaffold(
       appBar: AppBar(

@@ -94,6 +94,7 @@ class Habit {
     required this.color,
     required this.categoryId,
     required this.reminders,
+    this.createdAt,
   });
 
   factory Habit.fromJson(Map<String, dynamic> json) => Habit(
@@ -113,6 +114,7 @@ class Habit {
     reminders: ((json['reminders'] as List?) ?? const [])
         .map((r) => Reminder.fromJson(r as Map<String, dynamic>))
         .toList(),
+    createdAt: DateTime.tryParse(json['created_at'] as String? ?? ''),
   );
 
   final String id;
@@ -136,6 +138,9 @@ class Habit {
   final String? categoryId;
 
   final List<Reminder> reminders;
+
+  /// When the habit was made, if the server said.
+  final DateTime? createdAt;
 
   bool isDueOn(DateTime date) => weekdays?.contains(date.weekday) ?? true;
 }

@@ -10,6 +10,7 @@ Habit habit({
   Schedule schedule = Schedule.daily,
   List<int>? weekdays,
   int goal = 1,
+  DateTime? createdAt,
 }) => Habit(
   id: 'a',
   name: 'Habit',
@@ -25,6 +26,7 @@ Habit habit({
   color: 'ink',
   categoryId: null,
   reminders: const [],
+  createdAt: createdAt,
 );
 
 /// Entries by offset in days from [monday]; negative is before it.
@@ -75,6 +77,24 @@ void main() {
     // The running week is not held against it; two finished weeks, one met.
     expect(stats.rate30, closeTo(1 / 3, 1e-9));
     expect(stats.weeks.sublist(9), [0.5, 1.0, 0.0]);
+  });
+
+  test('days before the habit was made are not held against it', () {
+    // Made on Thursday the 1st and done every day since.
+    final made = DateTime(2026, 10, 1, 9);
+    final entries = log({for (final offset in [-4, -3, -2, -1]) offset: const DayEntry(value: 1)});
+    final stats = computeStats(habit(createdAt: made), entries, monday, 1);
+    expect(stats.rate30, 1.0);
+    expect(stats.rate90, 1.0);
+    expect(stats.weeks.sublist(10), [1.0, 0.0]);
+
+    // A day filled in for before it was made moves its first day back.
+    final earlier = {...entries, ...log({-8: const DayEntry(value: 1)})};
+    expect(computeStats(habit(createdAt: made), earlier, monday, 1).rate30, closeTo(5 / 8, 1e-9));
+
+    // A weekly habit's first, partial week only counts if it was met.
+    final weekly = habit(schedule: Schedule.weekly, goal: 3, createdAt: made);
+    expect(computeStats(weekly, log({-3: const DayEntry(value: 1)}), monday, 1).rate30, isNull);
   });
 
   test('nothing logged gives no rate and no best day', () {

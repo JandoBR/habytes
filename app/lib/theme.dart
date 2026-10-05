@@ -355,7 +355,9 @@ ThemeData appTheme(Brightness brightness) {
       trackColor: WidgetStateProperty.resolveWith(
         (states) => states.contains(WidgetState.selected) ? p.highlight : Colors.transparent,
       ),
-      thumbColor: WidgetStatePropertyAll(p.ink),
+      thumbColor: WidgetStateProperty.resolveWith(
+        (states) => states.contains(WidgetState.selected) ? p.onHighlight : p.ink,
+      ),
     ),
     listTileTheme: ListTileThemeData(
       iconColor: p.ink,

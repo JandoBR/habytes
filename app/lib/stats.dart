@@ -25,6 +25,19 @@ HabitStats computeStats(Habit habit, Map<String, DayEntry> entries, DateTime tod
   DayEntry on(DateTime day) => entries[ymd(day)] ?? const DayEntry();
   bool doneOn(DateTime day) => on(day).value >= habit.goal;
 
+  // The habit cannot be missed before it existed: its first day is the day it
+  // was made, or the first day logged if that was filled in for earlier.
+  DateTime? first;
+  final created = habit.createdAt?.toLocal();
+  if (created != null) {
+    first = DateTime.utc(created.year, created.month, created.day);
+    for (final MapEntry(:key, :value) in entries.entries) {
+      final day = parseYmd(key);
+      if ((value.value > 0 || value.skipped) && day.isBefore(first!)) first = day;
+    }
+  }
+  bool existedOn(DateTime day) => first == null || !day.isBefore(first);
+
   /// Done and counted days in `[from, to]`. Skipped and off days are left
   /// out, and so is today while it is still open.
   (int, int) days(DateTime from, DateTime to) {
@@ -34,7 +47,7 @@ HabitStats computeStats(Habit habit, Map<String, DayEntry> entries, DateTime tod
       if (isDone) {
         done++;
         counted++;
-      } else if (habit.isDueOn(day) && !on(day).skipped && day != today) {
+      } else if (habit.isDueOn(day) && !on(day).skipped && day != today && existedOn(day)) {
         counted++;
       }
     }
@@ -52,7 +65,9 @@ HabitStats computeStats(Habit habit, Map<String, DayEntry> entries, DateTime tod
     final met = sum >= habit.goal;
     final running = !all.last.isBefore(today);
     final excused = all.any((day) => on(day).skipped);
-    return ((sum / habit.goal).clamp(0, 1).toDouble(), met || !(running || excused));
+    // The week it was made in is cut short, so it only counts if it was met.
+    final whole = existedOn(start);
+    return ((sum / habit.goal).clamp(0, 1).toDouble(), met || !(running || excused || !whole));
   }
 
   final thisWeek = weekStartDate(today, weekStart);
@@ -80,7 +95,7 @@ HabitStats computeStats(Habit habit, Map<String, DayEntry> entries, DateTime tod
     final day = today.subtract(Duration(days: i));
     final logged = weekly ? on(day).value > 0 : doneOn(day);
     if (logged) hits[day.weekday]++;
-    if (logged || (habit.isDueOn(day) && !on(day).skipped)) chances[day.weekday]++;
+    if (logged || (habit.isDueOn(day) && !on(day).skipped && existedOn(day))) chances[day.weekday]++;
   }
   int? best;
   var bestScore = 0.0;

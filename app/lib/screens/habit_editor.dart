@@ -33,6 +33,9 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
   String _color = 'ink';
   String? _categoryId;
   List<Reminder> _reminders = [];
+
+  /// Bumped to put the category field back on the habit's own category.
+  int _categoryResets = 0;
   String? _webhookUrl;
 
   Habit? _habit;
@@ -122,6 +125,11 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
     if (!_form.currentState!.validate()) return;
     if (_schedule == Schedule.weekdays && _weekdays.isEmpty) {
       showMessage(context, 'Pick at least one day.');
+      return;
+    }
+    if (_schedule == Schedule.weekdays &&
+        _reminders.any((r) => r.days != null && !r.days!.any(_weekdays.contains))) {
+      showMessage(context, 'A reminder is only set for days this habit is not due on.');
       return;
     }
     final api = ref.read(apiProvider);
@@ -539,7 +547,7 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
     // A category that is gone must not leave the dropdown without its value.
     final current = categories.any((c) => c.id == _categoryId) ? _categoryId : null;
     return DropdownButtonFormField<String?>(
-      key: ValueKey('$current-${categories.length}'),
+      key: ValueKey('$current-${categories.length}-$_categoryResets'),
       initialValue: current,
       decoration: const InputDecoration(labelText: 'Category'),
       items: [
@@ -550,7 +558,10 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
       ],
       onChanged: (value) {
         if (value == create) {
-          _newCategory();
+          // Not a category itself: if none gets made, the field shows the old one again.
+          _newCategory().whenComplete(() {
+            if (mounted) setState(() => _categoryResets++);
+          });
         } else {
           setState(() => _categoryId = value);
         }
@@ -594,8 +605,11 @@ class _ReminderDialogState extends State<_ReminderDialog> {
     if (time != null && mounted) setState(() => _time = time);
   }
 
+  /// Whether the reminder could ever go off: only on days the habit is due.
+  bool get _canFire => _days.any((day) => widget.dueDays?.contains(day) ?? true);
+
   void _save() {
-    if (_days.isEmpty) return;
+    if (!_canFire) return;
     final days = _days.length == 7 ? null : (_days.toList()..sort());
     Navigator.pop(context, Reminder(time: _timeText, days: days));
   }
@@ -640,12 +654,19 @@ class _ReminderDialogState extends State<_ReminderDialog> {
               'it is only reminded on those days.',
               style: text.bodySmall!.copyWith(color: AppPalette.of(context).muted),
             ),
+            if (_days.isNotEmpty && !_canFire) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Pick at least one of them.',
+                style: text.bodySmall!.copyWith(color: AppPalette.of(context).danger),
+              ),
+            ],
           ],
         ],
       ),
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-        FilledButton(onPressed: _days.isEmpty ? null : _save, child: const Text('Save')),
+        FilledButton(onPressed: _canFire ? _save : null, child: const Text('Save')),
       ],
     );
   }

@@ -1,8 +1,10 @@
 package uk.pixxula.habytes
 
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.time.LocalDate
+import org.json.JSONObject
 
 /** [Api] over plain `HttpURLConnection`. Every call blocks. */
 class HttpApi : Api {
@@ -11,6 +13,11 @@ class HttpApi : Api {
         val response = when (op) {
             is Op.Increment -> request(credentials, "POST", "$entry/increment", op.requestBody())
             is Op.Set -> request(credentials, "PUT", entry, op.requestBody())
+        }
+        // Anything but habitd's own JSON (a captive portal, a proxy's error
+        // page) says nothing about the operation.
+        if (runCatching { JSONObject(response.body) }.isFailure) {
+            throw IOException("not habitd's answer")
         }
         return response.status
     }

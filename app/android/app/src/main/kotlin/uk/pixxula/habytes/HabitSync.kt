@@ -141,6 +141,8 @@ class HabitSync(
             }
             when {
                 status == 401 -> return signedOut(credentials)
+                // habitd never redirects an API call: something else answered.
+                status in 300..399 -> return SyncResult.RETRY
                 status == 408 || status == 429 || status >= 500 -> return SyncResult.RETRY
                 // Applied, or it never can be: the habit is gone or the request is invalid.
                 else -> synchronized(store) {
