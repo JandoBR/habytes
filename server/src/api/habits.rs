@@ -3,7 +3,7 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
 };
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use uuid::Uuid;
@@ -34,7 +34,8 @@ pub struct Habit {
     pub unit: String,
     pub color: String,
     pub category_id: Option<Uuid>,
-    pub reminder_time: Option<String>,
+    /// A JSON list of [`Reminder`]s.
+    pub reminders: String,
 }
 
 /// The inks a habit can be drawn in.
@@ -43,6 +44,11 @@ const COLORS: [&str; 6] = ["ink", "red", "green", "violet", "orange", "teal"];
 impl Habit {
     pub fn webhook_url(&self, public_url: &str) -> Option<String> {
         self.webhook_secret.as_ref().map(|secret| format!("{public_url}/hook/{secret}"))
+    }
+
+    /// The reminders as stored, for the API.
+    pub fn reminders_json(&self) -> Value {
+        serde_json::from_str(&self.reminders).unwrap_or_else(|_| json!([]))
     }
 
     fn to_json(&self, public_url: &str) -> Value {
@@ -57,7 +63,7 @@ impl Habit {
             "unit": self.unit,
             "color": self.color,
             "category_id": self.category_id,
-            "reminder_time": self.reminder_time,
+            "reminders": self.reminders_json(),
             "position": self.position,
             "archived": self.archived,
             "webhook_url": self.webhook_url(public_url),
@@ -107,15 +113,47 @@ fn validate_color(color: &str) -> ApiResult<()> {
     Ok(())
 }
 
-/// A reminder is a local time of day, `HH:MM`.
-fn validate_reminder(time: &str) -> ApiResult<()> {
-    let valid = time.len() == 5
-        && chrono::NaiveTime::parse_from_str(time, "%H:%M").is_ok()
-        && time.bytes().all(|b| b.is_ascii_digit() || b == b':');
-    if !valid {
-        return Err(ApiError::validation("reminder_time must be a time of day, HH:MM"));
+/// When to remind about a habit: a local time of day, on every day or only
+/// on some weekdays (1 = Monday ... 7 = Sunday).
+#[derive(Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Reminder {
+    time: String,
+    #[serde(default)]
+    days: Option<Vec<i64>>,
+}
+
+/// The most reminders one habit can have.
+const MAX_REMINDERS: usize = 12;
+
+/// Checks a habit's reminders and returns them as they are stored: sorted,
+/// without duplicates, and with "every day" always written as no days at all.
+fn validate_reminders(mut reminders: Vec<Reminder>) -> ApiResult<String> {
+    if reminders.len() > MAX_REMINDERS {
+        return Err(ApiError::validation("a habit can have at most 12 reminders"));
     }
-    Ok(())
+    for reminder in &mut reminders {
+        let time = &reminder.time;
+        let valid = time.len() == 5
+            && chrono::NaiveTime::parse_from_str(time, "%H:%M").is_ok()
+            && time.bytes().all(|b| b.is_ascii_digit() || b == b':');
+        if !valid {
+            return Err(ApiError::validation("a reminder's time must be a time of day, HH:MM"));
+        }
+        if let Some(days) = &mut reminder.days {
+            // Checks the numbers; the mask itself is not needed.
+            weekdays_to_mask(days).map_err(|_| {
+                ApiError::validation("a reminder's days must be numbers from 1 to 7")
+            })?;
+            days.sort_unstable();
+            days.dedup();
+            if days.len() == 7 {
+                reminder.days = None;
+            }
+        }
+    }
+    reminders.sort();
+    reminders.dedup();
+    Ok(serde_json::to_string(&reminders).expect("reminders serialise"))
 }
 
 /// A habit can only go into one of its owner's categories.
@@ -196,7 +234,8 @@ pub struct CreateHabit {
     unit: String,
     color: Option<String>,
     category_id: Option<Uuid>,
-    reminder_time: Option<String>,
+    #[serde(default)]
+    reminders: Vec<Reminder>,
 }
 
 pub async fn create(
@@ -218,9 +257,7 @@ pub async fn create(
     if let Some(category) = body.category_id {
         validate_category(&state.db, auth.user.id, category).await?;
     }
-    if let Some(time) = &body.reminder_time {
-        validate_reminder(time)?;
-    }
+    let reminders = validate_reminders(body.reminders)?;
 
     let id = body.id.unwrap_or_else(Uuid::now_v7);
     let now = now();
@@ -228,7 +265,7 @@ pub async fn create(
     let result = sqlx::query(
         "INSERT INTO habits (id, user_id, name, description, kind, schedule, weekdays, goal,
                              position, created_at, updated_at, unit, color, category_id,
-                             reminder_time)
+                             reminders)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (id) DO NOTHING",
     )
@@ -246,7 +283,7 @@ pub async fn create(
     .bind(&unit)
     .bind(&color)
     .bind(body.category_id)
-    .bind(&body.reminder_time)
+    .bind(&reminders)
     .execute(&state.db)
     .await?;
     if result.rows_affected() == 0 {
@@ -288,8 +325,7 @@ pub struct PatchHabit {
     color: Option<String>,
     #[serde(default, deserialize_with = "nullable")]
     category_id: Option<Option<Uuid>>,
-    #[serde(default, deserialize_with = "nullable")]
-    reminder_time: Option<Option<String>>,
+    reminders: Option<Vec<Reminder>>,
 }
 
 pub async fn patch(
@@ -341,11 +377,8 @@ pub async fn patch(
         }
         habit.category_id = category;
     }
-    if let Some(time) = body.reminder_time {
-        if let Some(time) = &time {
-            validate_reminder(time)?;
-        }
-        habit.reminder_time = time;
+    if let Some(reminders) = body.reminders {
+        habit.reminders = validate_reminders(reminders)?;
     }
 
     if let Some(archived) = body.archived {
@@ -359,7 +392,7 @@ pub async fn patch(
     sqlx::query(
         "UPDATE habits SET name = ?, description = ?, schedule = ?, weekdays = ?, goal = ?,
                            position = ?, archived = ?, updated_at = ?, unit = ?, color = ?,
-                           category_id = ?, reminder_time = ?
+                           category_id = ?, reminders = ?
          WHERE id = ?",
     )
     .bind(&habit.name)
@@ -373,7 +406,7 @@ pub async fn patch(
     .bind(&habit.unit)
     .bind(&habit.color)
     .bind(habit.category_id)
-    .bind(&habit.reminder_time)
+    .bind(&habit.reminders)
     .bind(habit.id)
     .execute(&state.db)
     .await?;

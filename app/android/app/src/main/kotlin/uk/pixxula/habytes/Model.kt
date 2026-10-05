@@ -32,8 +32,8 @@ data class Habit(
     /** Today is excused: it neither counts towards the streak nor breaks it. */
     val skipped: Boolean = false,
     val categoryId: String? = null,
-    /** When to remind about it if it is not done yet, in local time. */
-    val reminderTime: LocalTime? = null,
+    /** When to remind about it if it is not done yet. */
+    val reminders: List<Reminder> = emptyList(),
 ) {
     val done: Boolean get() = periodValue >= goal
 
@@ -215,10 +215,25 @@ data class Section(val category: Category?, val habits: List<Habit>) {
     val visible: List<Habit> get() = if (category?.collapsed == true) emptyList() else habits
 }
 
-/** The next moment a reminder for [time] should go off, strictly after [now]. */
-fun nextReminder(now: LocalDateTime, time: LocalTime): LocalDateTime {
-    val today = now.toLocalDate().atTime(time)
-    return if (today.isAfter(now)) today else today.plusDays(1)
+/**
+ * A local time of day to remind about a habit, on every day or only on some
+ * weekdays ([days], 1 = Monday ... 7 = Sunday; null for every day).
+ */
+data class Reminder(val time: LocalTime, val days: List<Int>? = null) {
+    fun appliesOn(date: LocalDate): Boolean = days?.contains(date.dayOfWeek.value) ?: true
+
+    /** The next moment it should go off, strictly after [now]. */
+    fun next(now: LocalDateTime): LocalDateTime {
+        var day = now.toLocalDate()
+        // Today if the time is still ahead, otherwise the next day it applies on.
+        repeat(8) {
+            val at = day.atTime(time)
+            if (appliesOn(day) && at.isAfter(now)) return at
+            day = day.plusDays(1)
+        }
+        // Unreachable for a reminder with at least one day.
+        return now.plusDays(7)
+    }
 }
 
 data class Credentials(val serverUrl: String, val token: String)

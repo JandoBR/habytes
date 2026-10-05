@@ -51,6 +51,17 @@ class Native {
     }
   }
 
+  /// Makes scans of [habitId]'s tag do nothing for a few seconds. Used right
+  /// after writing a tag, which Android otherwise reads back at once.
+  static Future<void> muteScans(String habitId) async {
+    if (!available) return;
+    try {
+      await _channel.invokeMethod('muteScans', {'habitId': habitId});
+    } on PlatformException {
+      // Worst case the write also logs the habit once.
+    }
+  }
+
   /// Asks for permission to show notifications, which reminders need.
   static Future<void> requestNotifications() async {
     if (!available) return;

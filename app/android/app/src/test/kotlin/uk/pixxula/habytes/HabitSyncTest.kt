@@ -267,6 +267,21 @@ class HabitSyncTest {
     }
 
     @Test
+    fun `a tag that was just written is not logged when Android reads it back`() {
+        store.cache = cache(habit("a"), habit("b"))
+        sync.muteScans("a")
+
+        assertEquals(ScanResult.Muted, sync.scan("a"))
+        now += WRITE_MUTE_MS - 1
+        assertEquals(ScanResult.Muted, sync.scan("a"))
+        assertTrue(store.outbox.isEmpty())
+        // Other habits' tags are unaffected, and so is this one a little later.
+        assertTrue(sync.scan("b") is ScanResult.Logged)
+        now += 1
+        assertTrue(sync.scan("a") is ScanResult.Logged)
+    }
+
+    @Test
     fun `an NFC scan while signed out asks to sign in`() {
         store.cache = cache(habit("a"))
         store.signedOut = true

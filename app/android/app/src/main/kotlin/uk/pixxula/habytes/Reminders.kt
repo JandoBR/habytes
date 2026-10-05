@@ -23,9 +23,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * Reminders: a notification at a habit's chosen time of day if it is not done
- * yet. One alarm per habit, set again each time it goes off and whenever the
- * cache is refreshed.
+ * Reminders: a notification at each of a habit's chosen times if it is not
+ * done yet. One alarm per reminder, set again each time it goes off and
+ * whenever the cache is refreshed.
  */
 object Reminders {
     private const val CHANNEL = "reminders"
@@ -33,33 +33,37 @@ object Reminders {
     private const val SCHEDULED = "scheduled"
     const val EXTRA_HABIT = "habit_id"
 
-    /** Sets an alarm for every habit with a reminder, and drops the ones no longer wanted. */
+    /** Sets an alarm for every reminder of every habit, and drops the ones no longer wanted. */
     fun schedule(context: Context) {
         val alarms = context.getSystemService(AlarmManager::class.java) ?: return
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val sync = Widgets.sync(context)
         val habits = if (sync.signedIn) sync.snapshot()?.habits.orEmpty() else emptyList()
-        val wanted = habits.filter { it.reminderTime != null }
+        // One alarm per reminder, known by a key that says which habit it is for.
+        val wanted = habits.flatMap { habit -> habit.reminders.map { key(habit, it) to it } }.toMap()
 
         val before = prefs.getStringSet(SCHEDULED, emptySet()).orEmpty()
-        for (id in before - wanted.map { it.id }.toSet()) {
-            alarms.cancel(alarmIntent(context, id))
+        for (old in before - wanted.keys) {
+            alarms.cancel(alarmIntent(context, old))
         }
         val now = LocalDateTime.now()
-        for (habit in wanted) {
-            val at = nextReminder(now, habit.reminderTime!!)
-            val millis = at.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        for ((key, reminder) in wanted) {
+            val millis = reminder.next(now).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
             // Not exact to the second, which needs no special permission.
-            alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, millis, alarmIntent(context, habit.id))
+            alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, millis, alarmIntent(context, key))
         }
-        prefs.edit().putStringSet(SCHEDULED, wanted.map { it.id }.toSet()).apply()
+        prefs.edit().putStringSet(SCHEDULED, wanted.keys).apply()
     }
 
-    private fun alarmIntent(context: Context, habitId: String): PendingIntent =
+    /** `<habit id>|<time>|<days>`: the same reminder always gets the same alarm. */
+    private fun key(habit: Habit, reminder: Reminder): String =
+        "${habit.id}|${reminder.time}|${reminder.days?.joinToString(",") ?: "*"}"
+
+    private fun alarmIntent(context: Context, key: String): PendingIntent =
         PendingIntent.getBroadcast(
             context,
-            habitId.hashCode(),
-            Intent(context, ReminderReceiver::class.java).putExtra(EXTRA_HABIT, habitId),
+            key.hashCode(),
+            Intent(context, ReminderReceiver::class.java).putExtra(EXTRA_HABIT, key.substringBefore('|')),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
@@ -117,7 +121,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 if (habit != null && habit.needsReminder(LocalDate.now())) {
                     Reminders.notify(app, habit)
                 }
-                // Tomorrow's.
+                // Its next occurrence.
                 Reminders.schedule(app)
             } finally {
                 pending.finish()

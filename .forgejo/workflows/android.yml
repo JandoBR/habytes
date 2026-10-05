@@ -54,7 +54,10 @@ jobs:
             cd app
             flutter analyze
             flutter test
-            flutter build apk --release --build-name "$VERSION" --build-number "$BUILD_NUMBER"
+            # 64-bit ARM only: every phone since about 2017. The default packs
+            # three processor types into one APK, three times the size.
+            flutter build apk --release --target-platform android-arm64 \
+              --build-name "$VERSION" --build-number "$BUILD_NUMBER"
             cd android
             ./nix-gradlew :app:testDebugUnitTest
           '

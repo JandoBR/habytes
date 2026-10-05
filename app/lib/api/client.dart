@@ -130,7 +130,7 @@ class ApiClient {
     String unit = '',
     String color = 'ink',
     String? categoryId,
-    String? reminderTime,
+    List<Reminder> reminders = const [],
   }) async => Habit.fromJson(
     await _send(
       'POST',
@@ -145,7 +145,7 @@ class ApiClient {
         'unit': unit,
         'color': color,
         'category_id': categoryId,
-        'reminder_time': reminderTime,
+        'reminders': [for (final reminder in reminders) reminder.toJson()],
       },
     ),
   );

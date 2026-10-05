@@ -32,7 +32,7 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
   final _unit = TextEditingController();
   String _color = 'ink';
   String? _categoryId;
-  TimeOfDay? _reminder;
+  List<Reminder> _reminders = [];
   String? _webhookUrl;
 
   Habit? _habit;
@@ -82,10 +82,7 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
         _color = habit.color;
         _categoryId = habit.categoryId;
         _webhookUrl = habit.webhookUrl;
-        final time = habit.reminderTime?.split(':');
-        _reminder = time == null
-            ? null
-            : TimeOfDay(hour: int.parse(time[0]), minute: int.parse(time[1]));
+        _reminders = [...habit.reminders];
       });
     } on Exception catch (error) {
       if (mounted) setState(() => _loadError = error);
@@ -131,10 +128,6 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
     final goal = _hasGoal ? int.parse(_goal.text) : 1;
     final weekdays = _schedule == Schedule.weekdays ? (_weekdays.toList()..sort()) : null;
     final unit = _kind == HabitKind.counter ? _unit.text.trim() : '';
-    final reminder = _reminder == null
-        ? null
-        : '${_reminder!.hour.toString().padLeft(2, '0')}:'
-              '${_reminder!.minute.toString().padLeft(2, '0')}';
 
     await _run(() async {
       if (_isNew) {
@@ -148,7 +141,7 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
           unit: unit,
           color: _color,
           categoryId: _categoryId,
-          reminderTime: reminder,
+          reminders: _reminders,
         );
       } else {
         await api.updateHabit(widget.habitId!, {
@@ -160,7 +153,7 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
           'unit': unit,
           'color': _color,
           'category_id': _categoryId,
-          'reminder_time': reminder,
+          'reminders': [for (final reminder in _reminders) reminder.toJson()],
         });
       }
     });
@@ -197,13 +190,25 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
     });
   }
 
-  Future<void> _pickReminder() async {
-    final time = await showTimePicker(
+  /// Adds a reminder, or changes the one at [index].
+  Future<void> _editReminder([int? index]) async {
+    final reminder = await showDialog<Reminder>(
       context: context,
-      initialTime: _reminder ?? const TimeOfDay(hour: 20, minute: 0),
+      builder: (context) => _ReminderDialog(
+        initial: index == null ? null : _reminders[index],
+        // A habit that is only due on some days is only reminded on those.
+        dueDays: _schedule == Schedule.weekdays ? _weekdays : null,
+      ),
     );
-    if (time == null || !mounted) return;
-    setState(() => _reminder = time);
+    if (reminder == null || !mounted) return;
+    setState(() {
+      if (index == null) {
+        _reminders = [..._reminders, reminder];
+      } else {
+        _reminders = [..._reminders]..[index] = reminder;
+      }
+      _reminders.sort((a, b) => a.time.compareTo(b.time));
+    });
     await Native.requestNotifications();
   }
 
@@ -422,29 +427,38 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
           const SizedBox(height: 24),
           _categoryField(context),
           const SizedBox(height: 16),
-          InputDecorator(
-            decoration: InputDecoration(
-              labelText: 'Reminder',
-              helperText: Native.available
-                  ? 'A notification at this time if it is not done yet.'
-                  : 'Shown by the Android app, at this time, if it is not done yet.',
-              helperMaxLines: 2,
-              contentPadding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
+          Text('Reminders', style: Theme.of(context).textTheme.labelLarge),
+          const SizedBox(height: 4),
+          Text(
+            Native.available
+                ? 'A notification at that time if the habit is not done yet.'
+                : 'Shown by the Android app, at that time, if the habit is not done yet.',
+            style: Theme.of(context).textTheme.bodySmall!
+                .copyWith(color: AppPalette.of(context).muted),
+          ),
+          const SizedBox(height: 4),
+          for (final (index, reminder) in _reminders.indexed)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              leading: const Icon(Icons.notifications_none),
+              title: Text(
+                '${reminder.time} · ${reminder.daysText}',
+                style: monoStyle(context, size: 14),
+              ),
+              trailing: IconButton(
+                tooltip: 'Remove reminder',
+                icon: const Icon(Icons.close, size: 20),
+                onPressed: () => setState(() => _reminders = [..._reminders]..removeAt(index)),
+              ),
+              onTap: () => _editReminder(index),
             ),
-            child: Row(
-              children: [
-                Expanded(child: Text(_reminder?.format(context) ?? 'Off')),
-                if (_reminder != null)
-                  IconButton(
-                    tooltip: 'Remove reminder',
-                    icon: const Icon(Icons.close, size: 20),
-                    onPressed: () => setState(() => _reminder = null),
-                  ),
-                TextButton(
-                  onPressed: _pickReminder,
-                  child: Text(_reminder == null ? 'Set a time' : 'Change'),
-                ),
-              ],
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: _reminders.length >= 12 ? null : _editReminder,
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('Add reminder'),
             ),
           ),
           const SizedBox(height: 32),
@@ -541,6 +555,98 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
           setState(() => _categoryId = value);
         }
       },
+    );
+  }
+}
+
+/// A reminder's time and the days it goes off on.
+class _ReminderDialog extends StatefulWidget {
+  const _ReminderDialog({required this.initial, required this.dueDays});
+
+  final Reminder? initial;
+
+  /// The days the habit is due, when it is not due every day.
+  final Set<int>? dueDays;
+
+  @override
+  State<_ReminderDialog> createState() => _ReminderDialogState();
+}
+
+class _ReminderDialogState extends State<_ReminderDialog> {
+  late TimeOfDay _time;
+  late Set<int> _days;
+
+  @override
+  void initState() {
+    super.initState();
+    final parts = widget.initial?.time.split(':');
+    _time = parts == null
+        ? const TimeOfDay(hour: 20, minute: 0)
+        : TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+    _days = widget.initial?.days?.toSet() ?? {1, 2, 3, 4, 5, 6, 7};
+  }
+
+  String get _timeText =>
+      '${_time.hour.toString().padLeft(2, '0')}:${_time.minute.toString().padLeft(2, '0')}';
+
+  Future<void> _pickTime() async {
+    final time = await showTimePicker(context: context, initialTime: _time);
+    if (time != null && mounted) setState(() => _time = time);
+  }
+
+  void _save() {
+    if (_days.isEmpty) return;
+    final days = _days.length == 7 ? null : (_days.toList()..sort());
+    Navigator.pop(context, Reminder(time: _timeText, days: days));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final due = widget.dueDays;
+    return AlertDialog(
+      title: Text(widget.initial == null ? 'New reminder' : 'Reminder'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          OutlinedButton.icon(
+            onPressed: _pickTime,
+            icon: const Icon(Icons.schedule, size: 18),
+            label: Text(_timeText, style: monoStyle(context, size: 17, medium: true)),
+          ),
+          const SizedBox(height: 16),
+          Text('On', style: text.labelLarge),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            runSpacing: 4,
+            children: [
+              for (var day = 1; day <= 7; day++)
+                FilterChip(
+                  label: Text(weekdayShort[day - 1]),
+                  showCheckmark: false,
+                  selected: _days.contains(day),
+                  onSelected: (selected) => setState(() {
+                    selected ? _days.add(day) : _days.remove(day);
+                  }),
+                ),
+            ],
+          ),
+          if (due != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              'This habit is due on ${due.toList().map((d) => weekdayShort[d - 1]).join(', ')}; '
+              'it is only reminded on those days.',
+              style: text.bodySmall!.copyWith(color: AppPalette.of(context).muted),
+            ),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        FilledButton(onPressed: _days.isEmpty ? null : _save, child: const Text('Save')),
+      ],
     );
   }
 }

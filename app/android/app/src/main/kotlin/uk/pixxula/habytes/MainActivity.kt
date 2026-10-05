@@ -84,6 +84,10 @@ class MainActivity : FlutterActivity() {
                         }
                         result.success(null)
                     }
+                    "muteScans" -> {
+                        Widgets.sync(context).muteScans(call.argument<String>("habitId")!!)
+                        result.success(null)
+                    }
                     "takeLaunchRoute" -> {
                         result.success(launchRoute)
                         launchRoute = null

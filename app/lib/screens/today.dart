@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../api/models.dart';
+import '../state/auth.dart';
 import '../state/data.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
@@ -239,9 +240,66 @@ class _HabitRow extends ConsumerWidget {
       builder: (_) => _DaySheet(habitId: habit.id),
     );
 
+    /// The quick options: the things done to a habit rather than to its day.
+    Future<void> quickMenu(Offset at) async {
+      final overlay = Overlay.of(context).context.findRenderObject()! as RenderBox;
+      final action = await showMenu<String>(
+        context: context,
+        position: RelativeRect.fromRect(at & Size.zero, Offset.zero & overlay.size),
+        items: [
+          PopupMenuItem(
+            value: 'skip',
+            child: Text(habit.skipped ? 'Do not skip today' : 'Skip today'),
+          ),
+          const PopupMenuItem(value: 'more', child: Text('Amount, note…')),
+          const PopupMenuDivider(),
+          const PopupMenuItem(value: 'history', child: Text('History and stats')),
+          const PopupMenuItem(value: 'edit', child: Text('Edit')),
+          const PopupMenuItem(value: 'archive', child: Text('Archive')),
+          PopupMenuItem(
+            value: 'delete',
+            child: Text('Delete', style: TextStyle(color: palette.danger)),
+          ),
+        ],
+      );
+      if (action == null || !context.mounted) return;
+      final api = ref.read(apiProvider);
+      switch (action) {
+        case 'skip':
+          await guard(context, () => today.setDay(habit, skipped: !habit.skipped));
+        case 'more':
+          more();
+        case 'history':
+          context.push('/habits/${habit.id}/history');
+        case 'edit':
+          context.push('/habits/${habit.id}');
+        case 'archive':
+          final ok = await guard(context, () => api.updateHabit(habit.id, {'archived': true}));
+          if (ok && context.mounted) {
+            invalidateHabits(ref);
+            showMessage(context, 'Archived. Restore it from the Habits screen.');
+          }
+        case 'delete':
+          final confirmed = await confirm(
+            context,
+            title: 'Delete "${habit.name}"?',
+            message: 'The habit and all of its history will be deleted. This cannot be undone.',
+            action: 'Delete',
+          );
+          if (!confirmed || !context.mounted) return;
+          if (await guard(context, () => api.deleteHabit(habit.id)) && context.mounted) {
+            invalidateHabits(ref);
+          }
+      }
+    }
+
+    Offset pressedAt = Offset.zero;
     return InkWell(
       onTap: () => context.push('/habits/${habit.id}/history'),
-      onLongPress: more,
+      // The menu opens where the finger is.
+      onTapDown: (details) => pressedAt = details.globalPosition,
+      onLongPress: () => quickMenu(pressedAt),
+      onSecondaryTapDown: (details) => quickMenu(details.globalPosition),
       child: Container(
         decoration: BoxDecoration(
           border: Border(bottom: BorderSide(color: palette.line)),

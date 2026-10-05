@@ -24,7 +24,7 @@ Habit habit({
   unit: '',
   color: 'ink',
   categoryId: null,
-  reminderTime: null,
+  reminders: const [],
 );
 
 /// Entries by offset in days from [monday]; negative is before it.

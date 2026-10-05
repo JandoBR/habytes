@@ -23,6 +23,31 @@ enum HabitKind { boolean, counter }
 
 enum Schedule { daily, weekdays, weekly }
 
+/// When to remind about a habit: a local time of day, on every day or only on
+/// some weekdays.
+class Reminder {
+  const Reminder({required this.time, this.days});
+
+  factory Reminder.fromJson(Map<String, dynamic> json) =>
+      Reminder(time: json['time'] as String, days: (json['days'] as List?)?.cast<int>());
+
+  /// `HH:MM`.
+  final String time;
+
+  /// Day numbers, 1 = Monday ... 7 = Sunday; null for every day.
+  final List<int>? days;
+
+  Map<String, Object?> toJson() => {'time': time, 'days': days};
+
+  /// `Every day`, `Mon, Wed, Fri`.
+  String get daysText {
+    const names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final days = this.days;
+    if (days == null || days.length == 7) return 'Every day';
+    return days.map((d) => names[d - 1]).join(', ');
+  }
+}
+
 /// The inks a habit can be drawn in; `ink` is the app's own.
 const habitColors = ['ink', 'red', 'green', 'violet', 'orange', 'teal'];
 
@@ -68,7 +93,7 @@ class Habit {
     required this.unit,
     required this.color,
     required this.categoryId,
-    required this.reminderTime,
+    required this.reminders,
   });
 
   factory Habit.fromJson(Map<String, dynamic> json) => Habit(
@@ -85,7 +110,9 @@ class Habit {
     unit: json['unit'] as String? ?? '',
     color: json['color'] as String? ?? 'ink',
     categoryId: json['category_id'] as String?,
-    reminderTime: json['reminder_time'] as String?,
+    reminders: ((json['reminders'] as List?) ?? const [])
+        .map((r) => Reminder.fromJson(r as Map<String, dynamic>))
+        .toList(),
   );
 
   final String id;
@@ -108,8 +135,7 @@ class Habit {
   final String color;
   final String? categoryId;
 
-  /// A local time of day, `HH:MM`, or null for no reminder.
-  final String? reminderTime;
+  final List<Reminder> reminders;
 
   bool isDueOn(DateTime date) => weekdays?.contains(date.weekday) ?? true;
 }

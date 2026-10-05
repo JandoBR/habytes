@@ -41,11 +41,16 @@ sealed interface ScanResult {
 
     /** A repeated scan of a counter, within [SCAN_DEBOUNCE_MS] of the last one. */
     data class Ignored(val habit: Habit) : ScanResult
+    /** The tag was only just written: reading it back is not a scan. */
+    data object Muted : ScanResult
     data object UnknownHabit : ScanResult
     data object SignedOut : ScanResult
 }
 
 const val SCAN_DEBOUNCE_MS = 1_000L
+
+/** How long scans of a habit are ignored after its tag was written. */
+const val WRITE_MUTE_MS = 8_000L
 
 /**
  * Taps, NFC scans and the exchange with the server. Changes are applied to
@@ -67,6 +72,17 @@ class HabitSync(
     /** The cache as of today, redrawn from what is stored if the day has changed. */
     fun snapshot(): Cache? = synchronized(store) { store.cache?.rolledTo(today()) }
 
+    /** Until when scans of each habit do nothing, in milliseconds. */
+    private val muted = mutableMapOf<String, Long>()
+
+    /**
+     * Makes scans of [habitId] do nothing for a while. Android reads a tag back
+     * the moment it has been written, which must not log the habit.
+     */
+    fun muteScans(habitId: String) {
+        synchronized(muted) { muted[habitId] = nowMillis() + WRITE_MUTE_MS }
+    }
+
     /** A widget tap: toggles a boolean habit today, adds 1 to a counter. */
     fun tap(habitId: String): Habit? = synchronized(store) {
         val habit = snapshot()?.habit(habitId) ?: return null
@@ -82,6 +98,8 @@ class HabitSync(
      */
     fun scan(habitId: String): ScanResult {
         if (!signedIn) return ScanResult.SignedOut
+        val mutedUntil = synchronized(muted) { muted[habitId] }
+        if (mutedUntil != null && nowMillis() < mutedUntil) return ScanResult.Muted
         if (snapshot()?.habit(habitId) == null) {
             if (sync() == SyncResult.SIGNED_OUT) return ScanResult.SignedOut
         }

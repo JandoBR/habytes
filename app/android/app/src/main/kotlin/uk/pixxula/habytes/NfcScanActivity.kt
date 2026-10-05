@@ -33,6 +33,8 @@ class NfcScanActivity : Activity() {
             when (result) {
                 ScanResult.SignedOut ->
                     startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                // Android reading back a tag the app just wrote: nothing to do or say.
+                ScanResult.Muted -> Unit
                 ScanResult.UnknownHabit -> toast("Unknown habit")
                 // Say so, or a quick second scan looks like it was counted and lost.
                 is ScanResult.Ignored -> toast("${describe(result.habit)} (already counted)")

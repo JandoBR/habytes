@@ -105,7 +105,8 @@ Back up by copying the database while the server is stopped, or with
 
 Every build of the app is published on the repository's **Releases** page as
 `v1.0.<n>`, with the signed APK attached (`habytes-1.0.<n>.apk`). Download the
-newest one and open it to install; later releases install over it and keep
+newest one and open it to install (it is built for 64-bit ARM, which is every
+phone since about 2017); later releases install over it and keep
 your sign-in and widget.
 
 To be told about new releases, add the repository's address to

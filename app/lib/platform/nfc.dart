@@ -8,6 +8,7 @@ import 'package:nfc_manager/nfc_manager.dart';
 import 'package:nfc_manager/nfc_manager_android.dart';
 
 import '../api/models.dart';
+import 'native.dart';
 
 /// The Android application ID, for the tag's Android Application Record.
 const _package = 'uk.pixxula.habytes';
@@ -109,7 +110,11 @@ class _WriteDialogState extends State<_WriteDialog> {
       _error = null;
     });
     try {
+      // The tag is still against the phone when the session ends, and Android
+      // would read it straight back and log the habit.
+      await Native.muteScans(widget.habit.id);
       await _write(tag, habitTagMessage(widget.habit.id));
+      await Native.muteScans(widget.habit.id);
       if (mounted) Navigator.pop(context, true);
     } on Exception catch (error) {
       if (mounted) {

@@ -339,7 +339,7 @@ pub async fn today(
             row.insert("unit".into(), json!(habit.unit));
             row.insert("color".into(), json!(habit.color));
             row.insert("category_id".into(), json!(habit.category_id));
-            row.insert("reminder_time".into(), json!(habit.reminder_time));
+            row.insert("reminders".into(), habit.reminders_json());
             row.insert("due".into(), json!(is_due(habit.weekdays, date)));
             row.insert("week_values".into(), json!(week_values));
             row.insert("week_skipped".into(), json!(week_skipped));

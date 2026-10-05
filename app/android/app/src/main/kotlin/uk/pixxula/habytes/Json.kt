@@ -20,9 +20,13 @@ private fun habitFromJson(json: JSONObject) = Habit(
     unit = json.optString("unit", ""),
     skipped = json.optBoolean("skipped", false),
     categoryId = json.optString("category_id").takeIf { it.isNotEmpty() && !json.isNull("category_id") },
-    reminderTime = json.optString("reminder_time")
-        .takeIf { it.isNotEmpty() && !json.isNull("reminder_time") }
-        ?.let { runCatching { LocalTime.parse(it) }.getOrNull() },
+    reminders = (json.optJSONArray("reminders") ?: JSONArray()).let { list ->
+        List(list.length()) { list.getJSONObject(it) }.mapNotNull { reminder ->
+            val time = runCatching { LocalTime.parse(reminder.getString("time")) }.getOrNull()
+            val days = reminder.optJSONArray("days")?.let { days -> List(days.length(), days::getInt) }
+            time?.let { Reminder(it, days) }
+        }
+    },
 )
 
 private fun Habit.toJson() = JSONObject()
@@ -38,7 +42,16 @@ private fun Habit.toJson() = JSONObject()
     .put("unit", unit)
     .put("skipped", skipped)
     .put("category_id", categoryId ?: JSONObject.NULL)
-    .put("reminder_time", reminderTime?.toString() ?: JSONObject.NULL)
+    .put(
+        "reminders",
+        JSONArray(
+            reminders.map {
+                JSONObject()
+                    .put("time", it.time.toString())
+                    .put("days", it.days?.let(::JSONArray) ?: JSONObject.NULL)
+            },
+        ),
+    )
 
 /** Reads a stored cache, or the body of `GET /today` (which has no `fetched_at`). */
 fun cacheFromJson(text: String, fetchedAt: Long? = null): Cache {

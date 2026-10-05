@@ -135,7 +135,7 @@ CREATE TABLE habits (
   unit            TEXT NOT NULL DEFAULT '',      -- "pages", "ml"; at most 20 characters
   color           TEXT NOT NULL DEFAULT 'ink',   -- ink, red, green, violet, orange, teal
   category_id     BLOB REFERENCES categories(id) ON DELETE SET NULL,
-  reminder_time   TEXT,                          -- "HH:MM" local time, NULL = none
+  reminders       TEXT NOT NULL DEFAULT '[]',    -- JSON: [{ "time": "HH:MM", "days": [1..7] | null }]
   position        INTEGER NOT NULL DEFAULT 0,
   archived        INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1)),
   webhook_secret  TEXT UNIQUE,                   -- NULL = webhook disabled
@@ -305,7 +305,7 @@ Habit object:
   "unit": "glasses",
   "color": "teal",
   "category_id": null,
-  "reminder_time": "18:30",
+  "reminders": [{ "time": "18:30", "days": null }, { "time": "07:00", "days": [1, 3, 5] }],
   "position": 2,
   "archived": false,
   "webhook_url": null,
@@ -314,14 +314,14 @@ Habit object:
 }
 ```
 
-`weekdays` is a list of day numbers (1 = Monday … 7 = Sunday) in the API and a bitmask in the database. It is required for `schedule: "weekdays"` and `null` otherwise. `category_id` must be one of the user's own categories. `reminder_time` is a local time of day; `null` removes it.
+`weekdays` is a list of day numbers (1 = Monday … 7 = Sunday) in the API and a bitmask in the database. It is required for `schedule: "weekdays"` and `null` otherwise. `category_id` must be one of the user's own categories. `reminders` is a list of at most 12, each a local time of day and the weekdays it applies on (`null` for every day); it is stored sorted and without duplicates, and an empty list removes them all.
 
 | Method and path | Purpose |
 | --- | --- |
 | `GET /habits?archived=false\|true\|all` | List, ordered by `position`. Default `false`. |
-| `POST /habits` | Body `{ id?, name, description?, kind, schedule, weekdays?, goal?, unit?, color?, category_id?, reminder_time? }`. New habits go last. 409 if `id` exists. |
+| `POST /habits` | Body `{ id?, name, description?, kind, schedule, weekdays?, goal?, unit?, color?, category_id?, reminders? }`. New habits go last. 409 if `id` exists. |
 | `GET /habits/{id}` | One habit. |
-| `PATCH /habits/{id}` | Any of `name`, `description`, `schedule`, `weekdays`, `goal`, `unit`, `color`, `category_id`, `reminder_time`, `archived`. The result must satisfy the goal rules in section 4. |
+| `PATCH /habits/{id}` | Any of `name`, `description`, `schedule`, `weekdays`, `goal`, `unit`, `color`, `category_id`, `reminders`, `archived`. The result must satisfy the goal rules in section 4. |
 | `DELETE /habits/{id}` | Deletes the habit and its entries. |
 | `PUT /habits/order` | Body `{ "ids": [...] }` listing every non-archived habit once. Sets `position` to the index. |
 | `POST /habits/{id}/webhook` | Creates or replaces the webhook secret. Returns `{ "webhook_url": "..." }`. |
@@ -350,7 +350,7 @@ Status object, returned by every write:
 
 | Method and path | Purpose |
 | --- | --- |
-| `GET /today?date=YYYY-MM-DD` | The widget's and Today's read endpoint: `{ date, week_start_date, categories: [...], habits: [...] }`. `date` defaults to today in the user's time zone. Each habit row is the status above plus `id`, `name`, `kind`, `schedule`, `weekdays`, `goal`, `unit`, `color`, `category_id`, `reminder_time`, `due`, `week_values` and `week_skipped`. `due` is false only for a `weekdays` habit on a day outside its mask. `week_values` and `week_skipped` give each of the week's seven days, from `week_start_date`. Archived habits are left out. |
+| `GET /today?date=YYYY-MM-DD` | The widget's and Today's read endpoint: `{ date, week_start_date, categories: [...], habits: [...] }`. `date` defaults to today in the user's time zone. Each habit row is the status above plus `id`, `name`, `kind`, `schedule`, `weekdays`, `goal`, `unit`, `color`, `category_id`, `reminders`, `due`, `week_values` and `week_skipped`. `due` is false only for a `weekdays` habit on a day outside its mask. `week_values` and `week_skipped` give each of the week's seven days, from `week_start_date`. Archived habits are left out. |
 | `GET /entries?from=&to=&habit_id=` | Raw entries `{ habit_id, date, value, skipped, note }` in an inclusive date range of at most 366 days. `habit_id` is optional. Days with no row are omitted. |
 | `POST /habits/{id}/entries/{date}/increment` | Body `{ "op_id": "<uuid>", "delta": 1 }`. Returns the status. |
 | `PUT /habits/{id}/entries/{date}` | Body with any of `value`, `skipped` and `note`. What is left out keeps its value. Returns the status. |
@@ -391,8 +391,8 @@ One Flutter codebase. On the web it is served by `habitd` from the same origin a
 
 | Screen | Contents |
 | --- | --- |
-| Today | The day's date with how many habits are done. Habits due that day, those without a category first, then under their categories; tapping a category's heading folds or unfolds it. Each row has a stamp (square for yes/no, round for counters), the name — highlighted when done —, the week as a strip of seven squares, progress (`5/8 glasses`, `2/3 this week`), the streak once it is at least two, and the day's note. Check or uncheck yes/no habits; `−` and `+` on counters. A sheet behind `⋮`, a long-press or holding `+` offers `+5`, `+10`, `+25`, another amount, an exact value, a note, and skipping the day. Habits not scheduled that day sit in a folded section and can still be logged. Previous and next day navigation to fix past days. |
-| Habit editor | Name, description, kind (create only), schedule (every day / pick weekdays / weekly target), goal — labelled "per day", "days per week" or "total per week" —, unit (counters), colour, category (or a new one on the spot) and reminder time. For an existing habit: its webhook (create, copy, replace, remove), "Write NFC tag" on Android, archive, delete. |
+| Today | The day's date with how many habits are done. Habits due that day, those without a category first, then under their categories; tapping a category's heading folds or unfolds it. Each row has a stamp (square for yes/no, round for counters), the name — highlighted when done —, the week as a strip of seven squares, progress (`5/8 glasses`, `2/3 this week`), the streak once it is at least two, and the day's note. Check or uncheck yes/no habits; `−` and `+` on counters. A sheet behind `⋮` or holding `+` offers `+5`, `+10`, `+25`, another amount, an exact value, a note, and skipping the day. A long-press (or right-click) on a habit opens a quick menu: skip today, that sheet, history, edit, archive, delete. Habits not scheduled that day sit in a folded section and can still be logged. Previous and next day navigation to fix past days. |
+| Habit editor | Name, description, kind (create only), schedule (every day / pick weekdays / weekly target), goal — labelled "per day", "days per week" or "total per week" —, unit (counters), colour, category (or a new one on the spot) and reminders: any number, each with a time and the days it applies on. For an existing habit: its webhook (create, copy, replace, remove), "Write NFC tag" on Android, archive, delete. |
 | Habits | Drag to reorder. Categories: add, rename, reorder, delete. Archived habits, with restore. |
 | History | Per habit: current and best streak, completion over the last 30 and 90 days, the weekday it most often gets done on, a bar per week for the last twelve weeks, a calendar heatmap of the last 12 months, and its notes. In the heatmap, days that were not due or were skipped are greyed, days with a note carry a marked corner, and for weekly habits each week is marked met or missed. Tap a day to change its value, skip it or edit its note. |
 | Settings | Time zone and first day of the week. API tokens (create, revoke). Signed-in devices and sessions (revoke). Sign out. |
@@ -422,6 +422,7 @@ Dart reaches the native side through one method channel, `habitd/native`:
 | `refreshWidgets()` | Flush, fetch and redraw. The app calls it on launch, on resume, and after every change. |
 | `getTimeZone()`, `getDeviceName()` | The device's IANA time zone and its readable name. |
 | `requestNotifications()` | Asks for the notification permission, when a reminder is first set. |
+| `muteScans(habitId)` | Makes scans of that habit's tag do nothing for a few seconds, around writing it. |
 | `takeLaunchRoute()` | The screen another part of the app asked to open (quick add's "More options"). |
 
 State:
@@ -430,7 +431,7 @@ State:
 cache:  { date, week_start_date, fetched_at,
           categories: [{ id, name, collapsed }],
           habits: [{ id, name, kind, schedule, weekdays, goal, unit, value, period_value,
-                     streak, skipped, category_id, reminder_time }] }
+                     streak, skipped, category_id, reminders }] }
 outbox: [{ op_id, habit_id, date, type: "increment" | "set", delta | value }]
 ```
 
@@ -495,7 +496,7 @@ A tag identifies a habit; the app does the logging with its own device token. Th
 1. A URI record: `habitd://habit/<habit id>`.
 2. An Android Application Record with the app's package name, so Android always hands the tag to this app.
 
-**Writing**: the habit editor in the Android app has "Write NFC tag". It writes the two records to any NDEF-capable tag (NTAG213 or larger). Several tags may point to the same habit.
+**Writing**: the habit editor in the Android app has "Write NFC tag". It writes the two records to any NDEF-capable tag (NTAG213 or larger). Several tags may point to the same habit. Android reads a tag back the moment it has been written, so scans of that habit are ignored for 8 seconds around a write.
 
 **Scanning**: Android delivers the tag to a small Kotlin activity with no UI. It:
 
@@ -512,7 +513,7 @@ A tag identifies a habit; the app does the logging with its own device token. Th
 
 ### Reminders
 
-A habit with a `reminder_time` gets one alarm a day at that local time. When it goes off, the app refreshes from the server (briefly; the cache is used if that fails) and shows a notification only if the habit is due today, not done and not skipped. The notification opens the app and has a button — "Done" or "Add 1" — that logs the habit through the outbox like a widget tap.
+A habit can have any number of reminders, each at a local time of day and on every day or only on chosen weekdays. Each gets its own alarm, set for its next occurrence. When one goes off, the app refreshes from the server (briefly; the cache is used if that fails) and shows a notification only if the habit is due today, not done and not skipped. So a habit that is only due on some days is only reminded on those, whatever its reminders say, and a weekly habit is reminded until the week's goal is met. The notification opens the app and has a button — "Done" or "Add 1" — that logs the habit through the outbox like a widget tap.
 
 * Alarms are inexact, so a reminder can be a few minutes late; exact ones would need a special permission.
 * They are set again after each refresh, after each time they go off, and after a restart of the phone.
@@ -547,7 +548,7 @@ The `Dockerfile` builds an image with the web app embedded; it expects `flutter 
 Two Forgejo workflows run on pushes to `main`, each only when something it depends on changed. Both run the tests first and stop if any fail.
 
 * **Image**: analyses and tests the app, lints and tests the server, builds the web app and the image, pushes it as `latest` and by commit, recreates the running container from it, and keeps the newest 8 image versions.
-* **Android**: analyses and tests the app, builds the signed APK, runs the Kotlin tests, and publishes the APK as release `v1.0.<run number>`, keeping the newest 10. The version code rises with the run number, so each release installs over the last.
+* **Android**: analyses and tests the app, builds the signed APK (for 64-bit ARM only, which keeps it near 19 MB instead of three times that), runs the Kotlin tests, and publishes the APK as release `v1.0.<run number>`, keeping the newest 10. The version code rises with the run number, so each release installs over the last.
 
 ## 12. Testing
 
@@ -555,7 +556,7 @@ Two Forgejo workflows run on pushes to `main`, each only when something it depen
 * OIDC: tested against a mock issuer serving discovery, JWKS and the token endpoint.
 * Streaks: unit tests of the counting rules.
 * App: unit tests of the statistics.
-* Widget: Kotlin unit tests for the cache and outbox logic (optimistic apply, flush outcomes, day and week change, streaks, due-day filtering, categories, re-apply after refresh), NFC scans (boolean set, counter debounce, unknown habit) and reminder timing.
+* Widget: Kotlin unit tests for the cache and outbox logic (optimistic apply, flush outcomes, day and week change, streaks, due-day filtering, categories, re-apply after refresh), NFC scans (boolean set, counter debounce, a tag just written, unknown habit) and reminder timing.
 
 ## 13. Later
 

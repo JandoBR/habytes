@@ -1055,32 +1055,51 @@ async fn habit_extras_are_validated() {
             "/api/v1/habits",
             json!({
                 "name": "Read", "kind": "counter", "schedule": "daily", "goal": 20,
-                "unit": " pages ", "color": "red", "reminder_time": "21:30",
+                "unit": " pages ", "color": "red",
+                "reminders": [
+                    { "time": "21:30" },
+                    { "time": "07:00", "days": [5, 1, 1] },
+                    { "time": "12:00", "days": [1, 2, 3, 4, 5, 6, 7] },
+                    { "time": "21:30", "days": null },
+                ],
             }),
         )
         .await;
     assert_eq!(status, StatusCode::CREATED, "{body}");
     assert_eq!(body["unit"], "pages");
     assert_eq!(body["color"], "red");
-    assert_eq!(body["reminder_time"], "21:30");
+    // Stored sorted and without duplicates; every day is written as no days.
+    assert_eq!(
+        body["reminders"],
+        json!([
+            { "time": "07:00", "days": [1, 5] },
+            { "time": "12:00", "days": null },
+            { "time": "21:30", "days": null },
+        ])
+    );
     assert_eq!(body["category_id"], Value::Null);
     let path = format!("/api/v1/habits/{}", body["id"].as_str().unwrap());
 
     for bad in [
         json!({ "color": "pink" }),
-        json!({ "reminder_time": "25:00" }),
-        json!({ "reminder_time": "9:5" }),
+        json!({ "reminders": [{ "time": "25:00" }] }),
+        json!({ "reminders": [{ "time": "9:5" }] }),
+        json!({ "reminders": [{ "time": "09:00", "days": [8] }] }),
+        json!({ "reminders": [{ "time": "09:00", "days": [] }] }),
+        json!({ "reminders": vec![json!({ "time": "09:00" }); 13] }),
         json!({ "unit": "x".repeat(21) }),
         json!({ "category_id": Uuid::now_v7() }),
     ] {
         let (status, body) = app.api(&token, "PATCH", &path, bad.clone()).await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{bad} -> {body}");
     }
-    // A reminder is removed with null; leaving the field out keeps it.
+    // Leaving the field out keeps the reminders; an empty list removes them.
     let (_, body) = app.api(&token, "PATCH", &path, json!({ "color": "teal" })).await;
-    assert_eq!(body["reminder_time"], "21:30");
-    let (_, body) = app.api(&token, "PATCH", &path, json!({ "reminder_time": null })).await;
-    assert_eq!(body["reminder_time"], Value::Null);
+    assert_eq!(body["reminders"].as_array().unwrap().len(), 3);
+    let view = today(&app, &token, MON).await;
+    assert_eq!(view["habits"][0]["reminders"][0]["time"], "07:00");
+    let (_, body) = app.api(&token, "PATCH", &path, json!({ "reminders": [] })).await;
+    assert_eq!(body["reminders"], json!([]));
     // New habits default to the plain ink and no unit.
     let plain = app.habit(&token, boolean("daily")).await;
     let (_, body) = app.get(&token, &format!("/api/v1/habits/{plain}")).await;

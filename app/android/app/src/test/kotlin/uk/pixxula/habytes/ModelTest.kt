@@ -238,10 +238,21 @@ class ModelTest {
 
     @Test
     fun `the next reminder is today if still ahead, otherwise tomorrow`() {
-        val time = LocalTime.of(20, 30)
-        assertEquals(MONDAY.atTime(20, 30), nextReminder(MONDAY.atTime(9, 0), time))
-        assertEquals(MONDAY.plusDays(1).atTime(20, 30), nextReminder(MONDAY.atTime(20, 30), time))
-        assertEquals(MONDAY.plusDays(1).atTime(20, 30), nextReminder(MONDAY.atTime(23, 0), time))
+        val daily = Reminder(LocalTime.of(20, 30))
+        assertEquals(MONDAY.atTime(20, 30), daily.next(MONDAY.atTime(9, 0)))
+        assertEquals(MONDAY.plusDays(1).atTime(20, 30), daily.next(MONDAY.atTime(20, 30)))
+        assertEquals(MONDAY.plusDays(1).atTime(20, 30), daily.next(MONDAY.atTime(23, 0)))
+    }
+
+    @Test
+    fun `a reminder limited to some days waits for the next of them`() {
+        // Mondays and Thursdays.
+        val reminder = Reminder(LocalTime.of(7, 0), days = listOf(1, 4))
+        assertTrue(reminder.appliesOn(MONDAY))
+        assertFalse(reminder.appliesOn(MONDAY.plusDays(1)))
+        assertEquals(MONDAY.atTime(7, 0), reminder.next(MONDAY.atTime(6, 0)))
+        assertEquals(MONDAY.plusDays(3).atTime(7, 0), reminder.next(MONDAY.atTime(8, 0)))
+        assertEquals(MONDAY.plusDays(7).atTime(7, 0), reminder.next(MONDAY.plusDays(3).atTime(7, 0)))
     }
 
     @Test
@@ -275,7 +286,12 @@ class ModelTest {
         val start = cache(
             habit("a", Kind.COUNTER, Schedule.WEEKDAYS, weekdays = listOf(1, 5), goal = 8, value = 3, streak = 4),
             habit("b", schedule = Schedule.WEEKLY, goal = 3, value = 1, periodValue = 2)
-                .copy(unit = "km", skipped = true, categoryId = "c", reminderTime = LocalTime.of(7, 5)),
+                .copy(
+                    unit = "km",
+                    skipped = true,
+                    categoryId = "c",
+                    reminders = listOf(Reminder(LocalTime.of(7, 5), listOf(2, 3)), Reminder(LocalTime.NOON)),
+                ),
         ).copy(categories = listOf(Category("c", "Health", collapsed = true)))
         assertEquals(start, cacheFromJson(start.toJson()))
 
@@ -290,7 +306,8 @@ class ModelTest {
              "categories":[{"id":"c1","name":"Health","position":0,"collapsed":true}],"habits":[
               {"id":"a","name":"Drink water","kind":"counter","schedule":"weekdays","weekdays":[1,2,3],
                "goal":8,"due":true,"value":3,"period_value":3,"done":false,"streak":12,"best_streak":30,
-               "unit":"glasses","skipped":true,"category_id":"c1","reminder_time":"21:30"},
+               "unit":"glasses","skipped":true,"category_id":"c1",
+               "reminders":[{"time":"21:30","days":null},{"time":"07:00","days":[1,5]}]},
               {"id":"b","name":"Gym","kind":"boolean","schedule":"weekly","weekdays":null,
                "goal":3,"due":true,"value":1,"period_value":2,"done":false}]}
         """
@@ -300,7 +317,11 @@ class ModelTest {
         assertEquals(
             Habit(
                 "a", "Drink water", Kind.COUNTER, Schedule.WEEKDAYS, listOf(1, 2, 3), 8, 3, 3, 12,
-                unit = "glasses", skipped = true, categoryId = "c1", reminderTime = LocalTime.of(21, 30),
+                unit = "glasses", skipped = true, categoryId = "c1",
+                reminders = listOf(
+                    Reminder(LocalTime.of(21, 30)),
+                    Reminder(LocalTime.of(7, 0), listOf(1, 5)),
+                ),
             ),
             cache.habits[0],
         )
