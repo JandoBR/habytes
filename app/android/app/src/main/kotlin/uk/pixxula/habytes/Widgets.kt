@@ -56,6 +56,8 @@ object Widgets {
     suspend fun syncNow(context: Context): SyncResult {
         val result = withContext(Dispatchers.IO) { sync(context).sync() }
         redraw(context)
+        // Reminder times come with the cache, and may have changed.
+        Reminders.schedule(context)
         return result
     }
 

@@ -1,6 +1,8 @@
 package uk.pixxula.habytes
 
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.temporal.ChronoUnit
 
 /** The widget's state: today's cache and the outbox of unsent taps. No Android in here. */
@@ -25,6 +27,13 @@ data class Habit(
     val periodValue: Int,
     /** Periods done in a row: due days, or weeks for a weekly habit. */
     val streak: Int = 0,
+    /** What a counter counts: `pages`, `ml`. May be empty. */
+    val unit: String = "",
+    /** Today is excused: it neither counts towards the streak nor breaks it. */
+    val skipped: Boolean = false,
+    val categoryId: String? = null,
+    /** When to remind about it if it is not done yet, in local time. */
+    val reminderTime: LocalTime? = null,
 ) {
     val done: Boolean get() = periodValue >= goal
 
@@ -40,13 +49,22 @@ data class Habit(
             else -> "$streak days"
         }
 
-    /** `3/8`, `2/3 this week`, or nothing for a plain daily checkbox. */
+    /** `3/8 pages`, `2/3 this week`, or nothing for a plain daily checkbox. */
     val progress: String
-        get() = when {
-            schedule == Schedule.WEEKLY -> "$periodValue/$goal this week"
-            kind == Kind.COUNTER -> "$value/$goal"
-            else -> ""
+        get() {
+            val amount = if (unit.isEmpty()) "" else " $unit"
+            return when {
+                schedule == Schedule.WEEKLY -> "$periodValue/$goal$amount this week"
+                kind == Kind.COUNTER -> "$value/$goal$amount"
+                else -> ""
+            }
         }
+
+    /** Skipped today, and not done all the same. */
+    val excused: Boolean get() = skipped && !done
+
+    /** Whether a reminder for this habit is still called for on [date]. */
+    fun needsReminder(date: LocalDate): Boolean = isDueOn(date) && !done && !skipped
 
     private val maxValue: Int get() = if (kind == Kind.BOOLEAN) 1 else MAX_COUNTER_VALUE
 
@@ -71,11 +89,12 @@ data class Habit(
             return when {
                 weeksPassed == 0L -> streak
                 // The week that just ended counts only if its goal was met.
-                weeksPassed == 1L && done -> streak
+                // (or it was excused by a skipped day, as far as this cache knows)
+                weeksPassed == 1L && (done || skipped) -> streak
                 else -> 0
             }
         }
-        if (isDueOn(from) && !done) return 0
+        if (isDueOn(from) && !done && !skipped) return 0
         // Any due day skipped entirely in between also ends it.
         var day = from.plusDays(1)
         while (day.isBefore(to)) {
@@ -115,9 +134,30 @@ data class Cache(
     val fetchedAt: Long,
     /** Every non-archived habit in order, due today or not. */
     val habits: List<Habit>,
+    val categories: List<Category> = emptyList(),
 ) {
-    /** The habits the widget lists: those due on the cache's date. */
+    /** The habits due on the cache's date. */
     val dueHabits: List<Habit> get() = habits.filter { it.isDueOn(date) }
+
+    /** The due habits that are part of the day: all but those excused. */
+    val countedHabits: List<Habit> get() = dueHabits.filterNot { it.excused }
+
+    /**
+     * What the widget lists, top to bottom: the due habits without a category,
+     * then each category that has due habits, with them under it unless it is
+     * folded.
+     */
+    val sections: List<Section>
+        get() {
+            val due = dueHabits
+            val known = categories.map { it.id }.toSet()
+            val loose = due.filter { it.categoryId !in known }
+            return listOfNotNull(Section(null, loose).takeIf { loose.isNotEmpty() }) +
+                categories.mapNotNull { category ->
+                    val habits = due.filter { it.categoryId == category.id }
+                    Section(category, habits).takeIf { habits.isNotEmpty() }
+                }
+        }
 
     fun habit(id: String): Habit? = habits.firstOrNull { it.id == id }
 
@@ -140,6 +180,7 @@ data class Cache(
                 val keepPeriod = sameWeek && it.schedule == Schedule.WEEKLY
                 it.copy(
                     value = 0,
+                    skipped = false,
                     periodValue = if (keepPeriod) it.periodValue else 0,
                     streak = it.streakAfter(date, today, weeks),
                 )
@@ -164,6 +205,20 @@ data class Cache(
         }
         return copy(habits = habits.map { if (it.id == habit.id) updated else it })
     }
+}
+
+data class Category(val id: String, val name: String, val collapsed: Boolean)
+
+/** A run of habits in the widget, under a [category] heading or under none. */
+data class Section(val category: Category?, val habits: List<Habit>) {
+    /** The habits shown: none while the category is folded. */
+    val visible: List<Habit> get() = if (category?.collapsed == true) emptyList() else habits
+}
+
+/** The next moment a reminder for [time] should go off, strictly after [now]. */
+fun nextReminder(now: LocalDateTime, time: LocalTime): LocalDateTime {
+    val today = now.toLocalDate().atTime(time)
+    return if (today.isAfter(now)) today else today.plusDays(1)
 }
 
 data class Credentials(val serverUrl: String, val token: String)

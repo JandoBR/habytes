@@ -2,6 +2,9 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.NFC"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
+    <!-- Reminders: notifications, and setting their alarms again after a restart. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <uses-feature android:name="android.hardware.nfc" android:required="false"/>
 
     <!-- The native store holds the device token: keep it out of backups. -->
@@ -72,6 +75,13 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/habit_widget_info"/>
+        </receiver>
+        <receiver android:name=".ReminderReceiver" android:exported="false"/>
+        <receiver android:name=".ReminderActionReceiver" android:exported="false"/>
+        <receiver android:name=".BootReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+            </intent-filter>
         </receiver>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

@@ -81,8 +81,6 @@ Still to do:
   release build installs and starts against `https://habits.example.com`; its
   widget, background sync and NFC scan have not been re-checked. Not tried at
   all yet: day and week change on the widget, a revoked token.
-* The widget is restyled in the app's palette and shows streaks, but that
-  version has not been looked at on a phone yet.
 * App icon (still the Flutter default).
 
 ## Build and deployment
@@ -115,9 +113,26 @@ Still to do:
 
 ## Beyond the spec
 
-* Streaks (`server/src/streak.rs`): current and best, counted in due days or
-  in weeks, reported by `/today` and by every write. Shown on Today, on the
-  History screen and in the widget, which also keeps them right offline.
+The spec is the starting point, not the limit. Added since:
+
+* **Streaks** (`server/src/streak.rs`): current and best, counted in due days
+  or in weeks, reported by `/today` and by every write.
+* **Skipped days and notes**: `PUT .../entries/{date}` takes any of `value`,
+  `skipped` and `note`. A skipped day neither counts towards a streak nor
+  breaks it; a week with a skipped day is excused the same way.
+* **Categories** (`/categories`): named groups that remember whether they are
+  folded. Today and the widget list habits under them and hide folded ones.
+* **Per-habit unit, ink and reminder time** (`unit`, `color`, `reminder_time`).
+* **Week strip**: `/today` returns each habit's week day by day
+  (`week_values`, `week_skipped`).
+* **Stats** (`app/lib/stats.dart`): completion over 30 and 90 days, best
+  weekday and a twelve-week trend, worked out in the app from `/entries`.
+* **Reminders** (`Reminders.kt`): Android only. One inexact alarm per habit;
+  when it goes off the app refreshes, and notifies if the habit is due, not
+  done and not skipped. The notification has a button that logs it.
+
+Not looked at on a phone yet: the restyled widget, category headings in it,
+and reminders.
 
 ## Look
 

@@ -1,0 +1,15 @@
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@android:color/transparent" />
+            <stroke android:width="1.5dp" android:color="@color/widget_line" />
+            <corners android:radius="4dp" />
+        </shape>
+    </item>
+    <!-- A dash: the day is excused. -->
+    <item android:bottom="11dp" android:left="7dp" android:right="7dp" android:top="11dp">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/widget_muted" />
+        </shape>
+    </item>
+</layer-list>

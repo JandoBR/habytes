@@ -200,7 +200,9 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
       context: context,
       initialTime: _reminder ?? const TimeOfDay(hour: 20, minute: 0),
     );
-    if (time != null && mounted) setState(() => _reminder = time);
+    if (time == null || !mounted) return;
+    setState(() => _reminder = time);
+    await Native.requestNotifications();
   }
 
   Future<void> _archive() =>

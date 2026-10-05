@@ -1,6 +1,7 @@
 package uk.pixxula.habytes
 
 import java.time.LocalDate
+import java.time.LocalTime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -187,6 +188,63 @@ class ModelTest {
     }
 
     @Test
+    fun `a skipped day does not end the streak, and is not skipped tomorrow`() {
+        val start = cache(habit("a", streak = 5).copy(skipped = true))
+        assertTrue(start.habit("a")!!.excused)
+        assertTrue(start.countedHabits.isEmpty())
+        val tuesday = start.rolledTo(MONDAY.plusDays(1))
+        assertEquals(5, tuesday.habit("a")!!.streak)
+        assertFalse(tuesday.habit("a")!!.skipped)
+        // Done on a skipped day is simply done.
+        val done = start.applying(Op.Set("1", "a", MONDAY, 1)).habit("a")!!
+        assertFalse(done.excused)
+        assertEquals(6, done.streak)
+    }
+
+    @Test
+    fun `habits are listed under their categories, hidden when folded`() {
+        val health = Category("h", "Health", collapsed = false)
+        val mind = Category("m", "Mind", collapsed = true)
+        val empty = Category("e", "Empty", collapsed = false)
+        val start = cache(
+            habit("water").copy(categoryId = "h"),
+            habit("loose"),
+            habit("read").copy(categoryId = "m"),
+            habit("gone").copy(categoryId = "deleted"),
+            habit("off", schedule = Schedule.WEEKDAYS, weekdays = listOf(7)).copy(categoryId = "e"),
+        ).copy(categories = listOf(health, mind, empty))
+
+        val sections = start.sections
+        // Uncategorised first; a category with nothing due today is left out.
+        assertEquals(listOf(null, health, mind), sections.map { it.category })
+        assertEquals(listOf("loose", "gone"), sections[0].visible.map { it.id })
+        assertEquals(listOf("water"), sections[1].visible.map { it.id })
+        // A folded category keeps its heading and count but shows no habits.
+        assertTrue(sections[2].visible.isEmpty())
+        assertEquals(listOf("read"), sections[2].habits.map { it.id })
+    }
+
+    @Test
+    fun `a reminder is for a due habit that is neither done nor skipped`() {
+        assertTrue(habit("a").needsReminder(MONDAY))
+        assertFalse(habit("a", value = 1).needsReminder(MONDAY))
+        assertFalse(habit("a").copy(skipped = true).needsReminder(MONDAY))
+        assertFalse(habit("a", schedule = Schedule.WEEKDAYS, weekdays = listOf(2)).needsReminder(MONDAY))
+        // A weekly habit is reminded until the week's goal is met.
+        val weekly = habit("a", schedule = Schedule.WEEKLY, goal = 2, value = 1, periodValue = 1)
+        assertTrue(weekly.needsReminder(MONDAY))
+        assertFalse(weekly.copy(periodValue = 2).needsReminder(MONDAY))
+    }
+
+    @Test
+    fun `the next reminder is today if still ahead, otherwise tomorrow`() {
+        val time = LocalTime.of(20, 30)
+        assertEquals(MONDAY.atTime(20, 30), nextReminder(MONDAY.atTime(9, 0), time))
+        assertEquals(MONDAY.plusDays(1).atTime(20, 30), nextReminder(MONDAY.atTime(20, 30), time))
+        assertEquals(MONDAY.plusDays(1).atTime(20, 30), nextReminder(MONDAY.atTime(23, 0), time))
+    }
+
+    @Test
     fun `only habits due on the cache date are listed`() {
         val start = cache(
             habit("daily"),
@@ -216,8 +274,9 @@ class ModelTest {
     fun `state survives a round trip through JSON`() {
         val start = cache(
             habit("a", Kind.COUNTER, Schedule.WEEKDAYS, weekdays = listOf(1, 5), goal = 8, value = 3, streak = 4),
-            habit("b", schedule = Schedule.WEEKLY, goal = 3, value = 1, periodValue = 2),
-        )
+            habit("b", schedule = Schedule.WEEKLY, goal = 3, value = 1, periodValue = 2)
+                .copy(unit = "km", skipped = true, categoryId = "c", reminderTime = LocalTime.of(7, 5)),
+        ).copy(categories = listOf(Category("c", "Health", collapsed = true)))
         assertEquals(start, cacheFromJson(start.toJson()))
 
         val outbox = listOf(Op.Increment("1", "a", MONDAY, 1), Op.Set("2", "b", MONDAY, 0))
@@ -227,9 +286,11 @@ class ModelTest {
     @Test
     fun `the today response is read`() {
         val body = """
-            {"date":"2026-10-05","week_start_date":"2026-10-05","habits":[
+            {"date":"2026-10-05","week_start_date":"2026-10-05",
+             "categories":[{"id":"c1","name":"Health","position":0,"collapsed":true}],"habits":[
               {"id":"a","name":"Drink water","kind":"counter","schedule":"weekdays","weekdays":[1,2,3],
-               "goal":8,"due":true,"value":3,"period_value":3,"done":false,"streak":12,"best_streak":30},
+               "goal":8,"due":true,"value":3,"period_value":3,"done":false,"streak":12,"best_streak":30,
+               "unit":"glasses","skipped":true,"category_id":"c1","reminder_time":"21:30"},
               {"id":"b","name":"Gym","kind":"boolean","schedule":"weekly","weekdays":null,
                "goal":3,"due":true,"value":1,"period_value":2,"done":false}]}
         """
@@ -237,9 +298,14 @@ class ModelTest {
         assertEquals(MONDAY, cache.date)
         assertEquals(42, cache.fetchedAt)
         assertEquals(
-            Habit("a", "Drink water", Kind.COUNTER, Schedule.WEEKDAYS, listOf(1, 2, 3), 8, 3, 3, 12),
+            Habit(
+                "a", "Drink water", Kind.COUNTER, Schedule.WEEKDAYS, listOf(1, 2, 3), 8, 3, 3, 12,
+                unit = "glasses", skipped = true, categoryId = "c1", reminderTime = LocalTime.of(21, 30),
+            ),
             cache.habits[0],
         )
+        assertEquals("3/8 glasses", cache.habits[0].progress)
+        assertEquals(listOf(Category("c1", "Health", true)), cache.categories)
         // A server from before streaks sends none.
         assertEquals(Habit("b", "Gym", Kind.BOOLEAN, Schedule.WEEKLY, null, 3, 1, 2, 0), cache.habits[1])
     }

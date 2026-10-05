@@ -41,6 +41,16 @@ class Native {
     }
   }
 
+  /// Asks for permission to show notifications, which reminders need.
+  static Future<void> requestNotifications() async {
+    if (!available) return;
+    try {
+      await _channel.invokeMethod('requestNotifications');
+    } on PlatformException {
+      // Without it reminders stay silent; nothing else depends on it.
+    }
+  }
+
   /// The device's IANA time zone name.
   static Future<String?> timeZone() async {
     if (!available) return null;

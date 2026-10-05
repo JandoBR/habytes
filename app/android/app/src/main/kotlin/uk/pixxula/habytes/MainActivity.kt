@@ -1,5 +1,6 @@
 package uk.pixxula.habytes
 
+import android.Manifest
 import android.os.Build
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
@@ -48,6 +49,7 @@ class MainActivity : FlutterActivity() {
                             store.outbox = emptyList()
                         }
                         Widgets.cancelFlush(context)
+                        Reminders.schedule(context)
                         scope.launch {
                             Widgets.redraw(context)
                             result.success(null)
@@ -55,6 +57,13 @@ class MainActivity : FlutterActivity() {
                     }
                     "refreshWidgets" -> scope.launch {
                         Widgets.syncNow(context)
+                        result.success(null)
+                    }
+                    // Reminders are notifications, which Android 13 and later ask about.
+                    "requestNotifications" -> {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
+                        }
                         result.success(null)
                     }
                     "getTimeZone" -> result.success(ZoneId.systemDefault().id)

@@ -87,11 +87,19 @@ private fun Content(signedIn: Boolean, cache: Cache?) {
         else -> Column(modifier = GlanceModifier.fillMaxSize()) {
             Header(cache)
             Box(modifier = GlanceModifier.fillMaxWidth().height(1.dp).background(line)) {}
-            if (cache.dueHabits.isEmpty()) {
+            val sections = cache.sections
+            if (sections.isEmpty()) {
                 Message("Nothing due today")
             } else {
                 LazyColumn(modifier = GlanceModifier.fillMaxSize()) {
-                    items(cache.dueHabits, itemId = { it.id.hashCode().toLong() }) { HabitRow(it) }
+                    for (section in sections) {
+                        section.category?.let { category ->
+                            item(itemId = category.id.hashCode().toLong()) {
+                                CategoryRow(category, section.habits)
+                            }
+                        }
+                        items(section.visible, itemId = { it.id.hashCode().toLong() }) { HabitRow(it) }
+                    }
                 }
             }
         }
@@ -101,7 +109,7 @@ private fun Content(signedIn: Boolean, cache: Cache?) {
 /** The day and how much of it is done. Opens the app. */
 @Composable
 private fun Header(cache: Cache) {
-    val due = cache.dueHabits
+    val due = cache.countedHabits
     val day = cache.date.format(DateTimeFormatter.ofPattern("EEEE d MMM", Locale.ENGLISH))
     Row(
         modifier = GlanceModifier
@@ -126,6 +134,31 @@ private fun Header(cache: Cache) {
     }
 }
 
+/** A category's name and count. Folding is done in the app, which this opens. */
+@Composable
+private fun CategoryRow(category: Category, habits: List<Habit>) {
+    val counted = habits.filterNot { it.excused }
+    Row(
+        modifier = GlanceModifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, top = 9.dp, bottom = 3.dp)
+            .clickable(actionStartActivity<MainActivity>()),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = category.name.uppercase(Locale.ENGLISH),
+            maxLines = 1,
+            style = TextStyle(color = muted, fontSize = 11.sp, fontWeight = FontWeight.Bold),
+            modifier = GlanceModifier.defaultWeight(),
+        )
+        Text(
+            text = "${counted.count { it.done }}/${counted.size}" + if (category.collapsed) "  ▸" else "",
+            maxLines = 1,
+            style = TextStyle(color = muted, fontSize = 11.sp, fontFamily = FontFamily.Monospace),
+        )
+    }
+}
+
 /** A line of text that opens the app. */
 @Composable
 private fun Message(text: String) {
@@ -146,12 +179,15 @@ private fun HabitRow(habit: Habit) {
     // A weekly habit can be checked today without being done for the week.
     val marked = if (boolean) habit.checkedToday else habit.done
     val stamp = when {
+        habit.excused && !marked -> R.drawable.widget_stamp_skipped
         boolean && marked -> R.drawable.widget_stamp_marked
         boolean -> R.drawable.widget_stamp_empty
         marked -> R.drawable.widget_round_marked
         else -> R.drawable.widget_round_empty
     }
-    val detail = listOf(habit.progress, habit.streakText).filter { it.isNotEmpty() }.joinToString(" · ")
+    val detail = listOf(if (habit.excused) "skipped" else "", habit.progress, habit.streakText)
+        .filter { it.isNotEmpty() }
+        .joinToString(" · ")
     Row(
         modifier = GlanceModifier
             .fillMaxWidth()
@@ -178,7 +214,7 @@ private fun HabitRow(habit: Habit) {
                     text = habit.name,
                     maxLines = 1,
                     style = TextStyle(
-                        color = if (habit.done) onHighlight else ink,
+                        color = if (habit.done) onHighlight else if (habit.excused) muted else ink,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Medium,
                     ),

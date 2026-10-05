@@ -1,6 +1,7 @@
 package uk.pixxula.habytes
 
 import java.time.LocalDate
+import java.time.LocalTime
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -16,6 +17,12 @@ private fun habitFromJson(json: JSONObject) = Habit(
     value = json.getInt("value"),
     periodValue = json.getInt("period_value"),
     streak = json.optInt("streak", 0),
+    unit = json.optString("unit", ""),
+    skipped = json.optBoolean("skipped", false),
+    categoryId = json.optString("category_id").takeIf { it.isNotEmpty() && !json.isNull("category_id") },
+    reminderTime = json.optString("reminder_time")
+        .takeIf { it.isNotEmpty() && !json.isNull("reminder_time") }
+        ?.let { runCatching { LocalTime.parse(it) }.getOrNull() },
 )
 
 private fun Habit.toJson() = JSONObject()
@@ -28,16 +35,29 @@ private fun Habit.toJson() = JSONObject()
     .put("value", value)
     .put("period_value", periodValue)
     .put("streak", streak)
+    .put("unit", unit)
+    .put("skipped", skipped)
+    .put("category_id", categoryId ?: JSONObject.NULL)
+    .put("reminder_time", reminderTime?.toString() ?: JSONObject.NULL)
 
 /** Reads a stored cache, or the body of `GET /today` (which has no `fetched_at`). */
 fun cacheFromJson(text: String, fetchedAt: Long? = null): Cache {
     val json = JSONObject(text)
     val habits = json.getJSONArray("habits")
+    val categories = json.optJSONArray("categories") ?: JSONArray()
     return Cache(
         date = LocalDate.parse(json.getString("date")),
         weekStartDate = LocalDate.parse(json.getString("week_start_date")),
         fetchedAt = fetchedAt ?: json.getLong("fetched_at"),
         habits = List(habits.length()) { habitFromJson(habits.getJSONObject(it)) },
+        categories = List(categories.length()) {
+            val category = categories.getJSONObject(it)
+            Category(
+                id = category.getString("id"),
+                name = category.getString("name"),
+                collapsed = category.optBoolean("collapsed", false),
+            )
+        },
     )
 }
 
@@ -46,6 +66,14 @@ fun Cache.toJson(): String = JSONObject()
     .put("week_start_date", weekStartDate.toString())
     .put("fetched_at", fetchedAt)
     .put("habits", JSONArray(habits.map { it.toJson() }))
+    .put(
+        "categories",
+        JSONArray(
+            categories.map {
+                JSONObject().put("id", it.id).put("name", it.name).put("collapsed", it.collapsed)
+            },
+        ),
+    )
     .toString()
 
 fun outboxFromJson(text: String): List<Op> {
