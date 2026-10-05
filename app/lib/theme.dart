@@ -335,7 +335,11 @@ ThemeData appTheme(Brightness brightness) {
       checkmarkColor: p.paper,
       side: inkLine,
       shape: _shape,
-      labelStyle: text.labelMedium,
+      labelStyle: text.labelMedium!.copyWith(
+        color: WidgetStateColor.resolveWith(
+          (states) => states.contains(WidgetState.selected) ? p.paper : p.ink,
+        ),
+      ),
       secondaryLabelStyle: text.labelMedium!.copyWith(color: p.paper),
     ),
     checkboxTheme: CheckboxThemeData(
