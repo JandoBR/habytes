@@ -1,18 +1,24 @@
 name: Android
 
-# Builds the release APK as a downloadable artifact and runs the Kotlin tests.
+# Tests the app, builds the signed APK and publishes it as a release. Each
+# release has a higher version than the last, so it installs over the previous
+# one (and updaters such as Obtainium can follow the releases).
 on:
   push:
     branches: [main]
     paths:
       - "app/**"
       - "flake.*"
+      - "scripts/publish-release"
       - ".forgejo/workflows/android.yml"
   workflow_dispatch:
 
 # The runner has Nix installed but not on PATH. NIX_CONFIG avoids the `nixbld`
 # group and the sandbox, which the runner does not have.
 env:
+  # 1.0.<run number>: unique and always increasing, which Android needs to
+  # accept one build as an update of another.
+  VERSION: 1.0.${{ github.run_number }}
   NIX_CONFIG: |
     build-users-group =
     sandbox = false
@@ -40,6 +46,7 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          BUILD_NUMBER: ${{ github.run_number }}
         run: |
           export PATH="/nix/var/nix/profiles/default/bin:$HOME/.nix-profile/bin:$PATH"
           nix develop --command bash -c '
@@ -47,14 +54,15 @@ jobs:
             cd app
             flutter analyze
             flutter test
-            flutter build apk --release
+            flutter build apk --release --build-name "$VERSION" --build-number "$BUILD_NUMBER"
             cd android
             ./nix-gradlew :app:testDebugUnitTest
           '
 
-      - name: Upload the APK
-        uses: actions/upload-artifact@v3
-        with:
-          name: habytes-apk
-          path: app/build/app/outputs/flutter-apk/app-release.apk
-          if-no-files-found: error
+      - name: Publish the release
+        env:
+          FORGEJO_API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
+          FORGEJO_TOKEN: ${{ github.token }}
+        run: |
+          FORGEJO_API="$(echo "$FORGEJO_API" | sed 's|\([^:]\)//|\1/|g')" \
+            scripts/publish-release "$VERSION" app/build/app/outputs/flutter-apk/app-release.apk
