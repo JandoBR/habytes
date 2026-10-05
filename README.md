@@ -100,7 +100,7 @@ Back up by copying the database while the server is stopped, or with
 
 Every action in the app is an API call (`/api/v1/*`, described in `SPEC.md`),
 authenticated with a token made under Settings. For things that cannot send a
-token, give a habit a webhook and `POST` to its URL:
+token, give a habit a webhook (in its editor) and `POST` to its URL:
 
 ```sh
 curl -X POST https://habits.example.com/hook/<secret>            # log it

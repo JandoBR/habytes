@@ -157,6 +157,8 @@ are in `lib/widgets/common.dart`.
 
 ## Decisions not in the spec
 
+* A habit's webhook is managed in that habit's editor, not in Settings, which
+  would otherwise list every habit.
 * Signing in again replaces the old credential instead of adding another: a
   device by its name, a browser by the session cookie it still holds. Two
   devices with the same name therefore cannot both stay signed in.

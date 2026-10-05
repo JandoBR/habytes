@@ -8,6 +8,8 @@ tags: []
 
 Supersedes `Design Document.md`.
 
+This is the original design. The project has since grown past it: streaks, skipped days and notes, categories, units, colours, reminders, statistics and the widget's quick add are described in `PROGRESS.md` under "Beyond the spec", and where the two disagree `PROGRESS.md` is the current one.
+
 ## 1. Overview
 
 A self-hostable habit tracker whose main interface is a **home-screen widget**.
@@ -345,10 +347,10 @@ Online-only. Served by `habitd` from the same origin, so it uses the session coo
 | Screen | Contents |
 | --- | --- |
 | Today | Habits due today in order, each showing done or not and its progress (`3/8` today, or `2/3 this week`). Check or uncheck booleans; `+` and `−` on counters. Habits not scheduled today sit in a collapsed section and can still be logged. Previous and next day navigation to fix past days. |
-| Habit editor | Create and edit name, description, kind (create only), schedule (every day / pick weekdays / weekly target) and goal. The goal field is labelled by the combination: "per day", "days per week" or "total per week". Archive, delete. |
+| Habit editor | Create and edit name, description, kind (create only), schedule (every day / pick weekdays / weekly target) and goal. The goal field is labelled by the combination: "per day", "days per week" or "total per week". The habit's webhook URL (create, copy, replace, remove). Archive, delete. |
 | Manage | Drag to reorder. Show and restore archived habits. |
 | History | Per habit: a calendar heatmap of the last 12 months from `GET /entries`. Days that were not due are greyed out; for weekly habits each week is marked met or missed. Tap a day to set its value. |
-| Settings | Time zone and first day of the week. Webhook URL per habit (create, copy, rotate, disable). API tokens (create, revoke). Signed-in devices and sessions (revoke). Sign out. |
+| Settings | Time zone and first day of the week. API tokens (create, revoke). Signed-in devices and sessions (revoke). Sign out. |
 
 An unauthenticated visit redirects to `/auth/login`.
 
