@@ -75,11 +75,12 @@ logic and NFC scans, as listed in spec section 11.
 
 Still to do:
 
-* Tried on a POCO X3 GT (Android 13, Firefox as browser) against a local
-  server reached with `adb reverse tcp:8787 tcp:8787`: sign-in, Today, the
+* Tried on a POCO X3 GT (Android 13, Firefox as browser): sign-in, Today, the
   widget, taps made offline and delivered after reconnecting, writing and
-  scanning a tag. Not tried yet: day and week change on the widget, a revoked
-  token, a release build.
+  scanning a tag (debug build, local server over `adb reverse`). The signed
+  release build installs and starts against `https://habits.example.com`; its
+  widget, background sync and NFC scan have not been re-checked. Not tried at
+  all yet: day and week change on the widget, a revoked token.
 * UI polish: the screens are plain default Material.
 * App icon (still the Flutter default).
 
@@ -134,5 +135,9 @@ Still to do:
 * The NFC debounce timestamp is kept in memory, not on disk.
 * The sign-in redirect is received by our own `AuthCallbackActivity`, not the
   one from `flutter_web_auth_2`, which left the browser tab open with Firefox.
+* Release builds keep a few classes that are only created by reflection
+  (`app/android/app/proguard-rules.pro`); without them the app crashed at start.
+* Base images come from `public.ecr.aws` rather than Docker Hub, whose pull
+  limit failed a CI build.
 * Debug builds allow plain HTTP so the app can talk to a development server.
 * The Nix shell's NDK is used for every Gradle module (`app/android/build.gradle.kts`).
