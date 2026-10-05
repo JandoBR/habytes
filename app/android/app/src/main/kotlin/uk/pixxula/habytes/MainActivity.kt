@@ -89,13 +89,25 @@ class MainActivity : FlutterActivity() {
                         launchRoute = null
                     }
                     "getTimeZone" -> result.success(ZoneId.systemDefault().id)
-                    "getDeviceName" -> result.success(
-                        Settings.Global.getString(contentResolver, Settings.Global.DEVICE_NAME)
-                            ?: Build.MODEL,
-                    )
+                    "getDeviceName" -> result.success(deviceName())
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    /**
+     * What the user calls this device, for the list of signed-in devices. Some
+     * makers only put a model code in the usual place, so the Bluetooth name is
+     * tried first.
+     */
+    private fun deviceName(): String {
+        val candidates = listOf(
+            runCatching { Settings.Secure.getString(contentResolver, "bluetooth_name") }.getOrNull(),
+            runCatching { Settings.Global.getString(contentResolver, Settings.Global.DEVICE_NAME) }
+                .getOrNull(),
+        )
+        return candidates.firstOrNull { !it.isNullOrBlank() && it != Build.MODEL }
+            ?: listOf(Build.MANUFACTURER, Build.MODEL).joinToString(" ") { it.orEmpty() }.trim()
     }
 
     override fun onDestroy() {

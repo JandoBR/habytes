@@ -84,7 +84,8 @@ Still to do:
 
 ## Build and deployment
 
-* Two Forgejo workflows run on pushes to `main` and by hand:
+* Two Forgejo workflows run on pushes to `main` and by hand. Both run the
+  tests first, and stop there if any fail:
   * `image.yml`, when `server/`, `app/` (other than `app/android/`), the
     Dockerfile or the flake changed: builds the web app and habitd, pushes
     `registry.example.com/habitd:latest` and `:<commit>`, puts it live with
@@ -155,6 +156,10 @@ Mono; all Open Font License). Shared pieces (`Stamp`, `Highlighted`, `Meter`)
 are in `lib/widgets/common.dart`.
 
 ## Decisions not in the spec
+
+* Signing in again replaces the old credential instead of adding another: a
+  device by its name, a browser by the session cookie it still holds. Two
+  devices with the same name therefore cannot both stay signed in.
 
 * Android application ID and Kotlin package: `uk.pixxula.habytes`; the app is
   called HaBytes.

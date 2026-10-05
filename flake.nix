@@ -65,9 +65,13 @@
           '';
         };
 
-        # Just enough to build the web app, for CI: no Android SDK to download.
+        # Just enough to build and test the web app and the server, for CI: no
+        # Android SDK to download.
         devShells.web = pkgs.mkShell {
           buildInputs = [ pkgs.flutter ];
+        };
+        devShells.server = pkgs.mkShell {
+          buildInputs = [ pkgs.cargo pkgs.rustc pkgs.clippy pkgs.rustfmt ];
         };
       }
     );

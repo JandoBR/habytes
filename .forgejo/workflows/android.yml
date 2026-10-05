@@ -45,6 +45,8 @@ jobs:
           nix develop --command bash -c '
             set -euo pipefail
             cd app
+            flutter analyze
+            flutter test
             flutter build apk --release
             cd android
             ./nix-gradlew :app:testDebugUnitTest

@@ -1,7 +1,8 @@
 name: Image
 
-# Builds habitd with the web app embedded, pushes it to the registry and puts
-# it live. Only runs when something that ends up in the image changed.
+# Tests the app and the server, builds habitd with the web app embedded, pushes
+# it to the registry and puts it live. Only runs when something that ends up in
+# the image changed.
 on:
   push:
     branches: [main]
@@ -34,6 +35,19 @@ jobs:
         with:
           # The whole history: pruning orders image tags by commit.
           fetch-depth: 0
+
+      # Nothing below runs, and nothing is deployed, unless the tests pass.
+      - name: Test the app
+        run: |
+          export PATH="/nix/var/nix/profiles/default/bin:$HOME/.nix-profile/bin:$PATH"
+          nix develop .#web --command bash -c 'cd app && flutter analyze && flutter test'
+
+      - name: Test the server
+        run: |
+          export PATH="/nix/var/nix/profiles/default/bin:$HOME/.nix-profile/bin:$PATH"
+          nix develop .#server --command bash -c '
+            cd server && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+          '
 
       - name: Build the web app
         run: |

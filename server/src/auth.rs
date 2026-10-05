@@ -17,7 +17,7 @@ use uuid::Uuid;
 
 use crate::{
     error::{ApiError, ApiResult},
-    extract::{ApiJson, AuthUser, SESSION_COOKIE, SESSION_LIFETIME},
+    extract::{ApiJson, AuthUser, SESSION_COOKIE, SESSION_LIFETIME, session_cookie},
     state::AppState,
     util::{now, pkce_s256, random_secret, sha256},
 };
@@ -181,9 +181,40 @@ struct CallbackQuery {
     error: Option<String>,
 }
 
+/// `Firefox on Linux`: who a session belongs to, in words, from its User-Agent.
+fn describe_browser(user_agent: &str) -> String {
+    // Most browsers also claim to be the ones they descend from, so the more
+    // specific names are looked for first.
+    let browsers = [
+        ("Firefox/", "Firefox"),
+        ("Edg/", "Edge"),
+        ("OPR/", "Opera"),
+        ("Vivaldi/", "Vivaldi"),
+        ("Chrome/", "Chrome"),
+        ("Safari/", "Safari"),
+    ];
+    let systems = [
+        ("Android", "Android"),
+        ("iPhone", "iPhone"),
+        ("iPad", "iPad"),
+        ("Windows", "Windows"),
+        ("Mac OS X", "macOS"),
+        ("Linux", "Linux"),
+    ];
+    let find = |names: &[(&str, &'static str)]| {
+        names.iter().find(|(mark, _)| user_agent.contains(mark)).map(|&(_, name)| name)
+    };
+    match (find(&browsers), find(&systems)) {
+        (Some(browser), Some(system)) => format!("{browser} on {system}"),
+        (Some(name), None) | (None, Some(name)) => name.to_string(),
+        (None, None) => "Web session".to_string(),
+    }
+}
+
 async fn callback(
     State(state): State<AppState>,
     Query(query): Query<CallbackQuery>,
+    headers: HeaderMap,
 ) -> ApiResult<Response> {
     let Some(flow_state) = query.state else {
         return Ok(login_failed("The sign-in response was incomplete."));
@@ -254,12 +285,22 @@ async fn callback(
     }
 
     delete_flow().await?;
+    // Signing in again from a browser replaces the session it already had,
+    // rather than leaving the old one behind in the list.
+    if let Some(previous) = session_cookie(&headers) {
+        sqlx::query("DELETE FROM tokens WHERE token_hash = ? AND user_id = ? AND kind = 'session'")
+            .bind(sha256(previous.as_bytes()))
+            .bind(user_id)
+            .execute(&state.db)
+            .await?;
+    }
+    let user_agent = headers.get(header::USER_AGENT).and_then(|v| v.to_str().ok()).unwrap_or("");
     let token = new_token();
     insert_token(
         &state.db,
         user_id,
         "session",
-        "Web session",
+        &describe_browser(user_agent),
         &token,
         Some(now() + SESSION_LIFETIME),
     )
@@ -308,6 +349,13 @@ async fn token(
         .map(|name| name.trim().chars().take(100).collect::<String>())
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| "Android device".into());
+    // A device signing in again (after a reinstall, say) replaces its old
+    // credential, which nothing can use any more and would never expire.
+    sqlx::query("DELETE FROM tokens WHERE user_id = ? AND kind = 'device' AND name = ?")
+        .bind(user_id)
+        .bind(&name)
+        .execute(&state.db)
+        .await?;
     let token = new_token();
     insert_token(&state.db, user_id, "device", &name, &token, None).await?;
 
