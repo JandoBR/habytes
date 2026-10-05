@@ -39,10 +39,25 @@ class Reminder {
 
   Map<String, Object?> toJson() => {'time': time, 'days': days};
 
-  /// `Every day`, `Mon, Wed, Fri`.
-  String get daysText {
-    const names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  /// The reminder for a habit that is only due on [due] (null for every day):
+  /// without the days the habit is not due on, and on every due day if that
+  /// leaves none or all of them.
+  Reminder fitTo(Set<int>? due) {
     final days = this.days;
+    if (days == null) return this;
+    final kept = [
+      for (final day in days)
+        if (due?.contains(day) ?? true) day,
+    ];
+    final all = kept.isEmpty || kept.length == (due?.length ?? 7);
+    return Reminder(time: time, days: all ? null : kept);
+  }
+
+  /// `Every day`, `Mon, Wed, Fri`: the days it goes off on, for a habit that is
+  /// only due on [due] (null for every day).
+  String daysText([Set<int>? due]) {
+    const names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final days = fitTo(due).days ?? (due?.toList()?..sort());
     if (days == null || days.length == 7) return 'Every day';
     return days.map((d) => names[d - 1]).join(', ');
   }

@@ -127,15 +127,11 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
       showMessage(context, 'Pick at least one day.');
       return;
     }
-    if (_schedule == Schedule.weekdays &&
-        _reminders.any((r) => r.days != null && !r.days!.any(_weekdays.contains))) {
-      showMessage(context, 'A reminder is only set for days this habit is not due on.');
-      return;
-    }
     final api = ref.read(apiProvider);
     final goal = _hasGoal ? int.parse(_goal.text) : 1;
     final weekdays = _schedule == Schedule.weekdays ? (_weekdays.toList()..sort()) : null;
     final unit = _kind == HabitKind.counter ? _unit.text.trim() : '';
+    final reminders = [for (final reminder in _reminders) reminder.fitTo(_dueDays)];
 
     await _run(() async {
       if (_isNew) {
@@ -149,7 +145,7 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
           unit: unit,
           color: _color,
           categoryId: _categoryId,
-          reminders: _reminders,
+          reminders: reminders,
         );
       } else {
         await api.updateHabit(widget.habitId!, {
@@ -161,7 +157,7 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
           'unit': unit,
           'color': _color,
           'category_id': _categoryId,
-          'reminders': [for (final reminder in _reminders) reminder.toJson()],
+          'reminders': [for (final reminder in reminders) reminder.toJson()],
         });
       }
     });
@@ -198,14 +194,18 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
     });
   }
 
+  /// The days the habit is due, when it is not due every day: it is only
+  /// reminded on those.
+  Set<int>? get _dueDays => _schedule == Schedule.weekdays ? _weekdays : null;
+
   /// Adds a reminder, or changes the one at [index].
   Future<void> _editReminder([int? index]) async {
+    final due = _dueDays;
     final reminder = await showDialog<Reminder>(
       context: context,
       builder: (context) => _ReminderDialog(
-        initial: index == null ? null : _reminders[index],
-        // A habit that is only due on some days is only reminded on those.
-        dueDays: _schedule == Schedule.weekdays ? _weekdays : null,
+        initial: index == null ? null : _reminders[index].fitTo(due),
+        dueDays: due == null ? null : {...due},
       ),
     );
     if (reminder == null || !mounted) return;
@@ -451,7 +451,7 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
               dense: true,
               leading: const Icon(Icons.notifications_none),
               title: Text(
-                '${reminder.time} · ${reminder.daysText}',
+                '${reminder.time} · ${reminder.daysText(_dueDays)}',
                 style: monoStyle(context, size: 14),
               ),
               trailing: IconButton(
@@ -585,7 +585,13 @@ class _ReminderDialog extends StatefulWidget {
 
 class _ReminderDialogState extends State<_ReminderDialog> {
   late TimeOfDay _time;
+
+  /// Whether it goes off on [_days] only, rather than whenever the habit is due.
+  late bool _someDays;
   late Set<int> _days;
+
+  /// The days there are to choose from: the ones the habit is due on.
+  late final List<int> _offered = (widget.dueDays ?? {1, 2, 3, 4, 5, 6, 7}).toList()..sort();
 
   @override
   void initState() {
@@ -594,7 +600,9 @@ class _ReminderDialogState extends State<_ReminderDialog> {
     _time = parts == null
         ? const TimeOfDay(hour: 20, minute: 0)
         : TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
-    _days = widget.initial?.days?.toSet() ?? {1, 2, 3, 4, 5, 6, 7};
+    final days = widget.initial?.days;
+    _someDays = days != null;
+    _days = days?.toSet() ?? _offered.toSet();
   }
 
   String get _timeText =>
@@ -605,13 +613,12 @@ class _ReminderDialogState extends State<_ReminderDialog> {
     if (time != null && mounted) setState(() => _time = time);
   }
 
-  /// Whether the reminder could ever go off: only on days the habit is due.
-  bool get _canFire => _days.any((day) => widget.dueDays?.contains(day) ?? true);
+  bool get _canSave => !_someDays || _days.isNotEmpty;
 
   void _save() {
-    if (!_canFire) return;
-    final days = _days.length == 7 ? null : (_days.toList()..sort());
-    Navigator.pop(context, Reminder(time: _timeText, days: days));
+    // All of the days is the same as following the habit.
+    final all = !_someDays || _days.length == _offered.length;
+    Navigator.pop(context, Reminder(time: _timeText, days: all ? null : (_days.toList()..sort())));
   }
 
   @override
@@ -629,36 +636,43 @@ class _ReminderDialogState extends State<_ReminderDialog> {
             icon: const Icon(Icons.schedule, size: 18),
             label: Text(_timeText, style: monoStyle(context, size: 17, medium: true)),
           ),
-          const SizedBox(height: 16),
-          Text('On', style: text.labelLarge),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 6,
-            runSpacing: 4,
-            children: [
-              for (var day = 1; day <= 7; day++)
-                FilterChip(
-                  label: Text(weekdayShort[day - 1]),
-                  showCheckmark: false,
-                  selected: _days.contains(day),
-                  onSelected: (selected) => setState(() {
-                    selected ? _days.add(day) : _days.remove(day);
-                  }),
+          // With a single day there is nothing to choose.
+          if (_offered.length > 1) ...[
+            const SizedBox(height: 16),
+            SegmentedButton<bool>(
+              segments: [
+                ButtonSegment(
+                  value: false,
+                  label: Text(due == null ? 'Every day' : 'Every due day'),
                 ),
-            ],
-          ),
-          if (due != null) ...[
-            const SizedBox(height: 12),
-            Text(
-              'This habit is due on ${due.toList().map((d) => weekdayShort[d - 1]).join(', ')}; '
-              'it is only reminded on those days.',
-              style: text.bodySmall!.copyWith(color: AppPalette.of(context).muted),
+                const ButtonSegment(value: true, label: Text('Some days')),
+              ],
+              showSelectedIcon: false,
+              selected: {_someDays},
+              onSelectionChanged: (choice) => setState(() => _someDays = choice.first),
             ),
-            if (_days.isNotEmpty && !_canFire) ...[
-              const SizedBox(height: 8),
+            if (_someDays) ...[
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: [
+                  for (final day in _offered)
+                    FilterChip(
+                      label: Text(weekdayShort[day - 1]),
+                      showCheckmark: false,
+                      selected: _days.contains(day),
+                      onSelected: (selected) => setState(() {
+                        selected ? _days.add(day) : _days.remove(day);
+                      }),
+                    ),
+                ],
+              ),
+            ] else if (due != null) ...[
+              const SizedBox(height: 12),
               Text(
-                'Pick at least one of them.',
-                style: text.bodySmall!.copyWith(color: AppPalette.of(context).danger),
+                _offered.map((day) => weekdayShort[day - 1]).join(', '),
+                style: text.bodySmall!.copyWith(color: AppPalette.of(context).muted),
               ),
             ],
           ],
@@ -666,7 +680,7 @@ class _ReminderDialogState extends State<_ReminderDialog> {
       ),
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-        FilledButton(onPressed: _canFire ? _save : null, child: const Text('Save')),
+        FilledButton(onPressed: _canSave ? _save : null, child: const Text('Save')),
       ],
     );
   }
