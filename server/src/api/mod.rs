@@ -2,12 +2,13 @@
 
 use axum::{
     Json, Router,
-    routing::{delete, get, post, put},
+    routing::{delete, get, patch, post, put},
 };
 use serde_json::{Value, json};
 
 use crate::{error::ApiError, state::AppState};
 
+pub mod categories;
 pub mod entries;
 pub mod habits;
 mod me;
@@ -23,6 +24,9 @@ pub fn router() -> Router<AppState> {
         .route("/habits/{id}/webhook", post(habits::create_webhook).delete(habits::delete_webhook))
         .route("/habits/{id}/entries/{date}", put(entries::set))
         .route("/habits/{id}/entries/{date}/increment", post(entries::increment))
+        .route("/categories", get(categories::list).post(categories::create))
+        .route("/categories/order", put(categories::order))
+        .route("/categories/{id}", patch(categories::patch).delete(categories::delete))
         .route("/today", get(entries::today))
         .route("/entries", get(entries::list))
         .route("/tokens", get(tokens::list).post(tokens::create))

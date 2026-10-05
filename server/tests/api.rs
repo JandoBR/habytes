@@ -257,7 +257,7 @@ async fn completion_boolean_daily() {
         status,
         json!({
             "habit_id": habit, "date": MON, "value": 1, "period_value": 1, "done": true,
-            "streak": 1, "best_streak": 1,
+            "skipped": false, "note": "", "streak": 1, "best_streak": 1,
         })
     );
     // Completion is per day.
@@ -549,9 +549,9 @@ async fn entries_listing() {
     assert_eq!(
         all,
         json!([
-            { "habit_id": a, "date": MON, "value": 1 },
-            { "habit_id": b, "date": MON, "value": 4 },
-            { "habit_id": b, "date": WED, "value": 2 },
+            { "habit_id": a, "date": MON, "value": 1, "skipped": false, "note": "" },
+            { "habit_id": b, "date": MON, "value": 4, "skipped": false, "note": "" },
+            { "habit_id": b, "date": WED, "value": 2, "skipped": false, "note": "" },
         ])
     );
     let (_, only_a) =
@@ -1000,4 +1000,149 @@ async fn streaks_are_reported_by_today_and_by_writes() {
     // Unchecking takes the day back out.
     let status = app.set(&token, &daily, WED, 0).await;
     assert_eq!(status["streak"], 2);
+}
+
+#[tokio::test]
+async fn skipped_days_and_notes() {
+    let app = TestApp::new().await;
+    let token = app.user("alice").await;
+    let habit = app.habit(&token, boolean("daily")).await;
+    let day = |date: &str| format!("/api/v1/habits/{habit}/entries/{date}");
+
+    app.set(&token, &habit, MON, 1).await;
+    // Tuesday is skipped, with a note; neither touches the value.
+    let (status, body) =
+        app.api(&token, "PUT", &day(TUE), json!({ "skipped": true, "note": "  ill  " })).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!((body["value"].clone(), body["skipped"].clone()), (json!(0), json!(true)));
+    assert_eq!(body["note"], "ill");
+    let status = app.set(&token, &habit, WED, 1).await;
+    // The skipped day does not break the streak, and does not count either.
+    assert_eq!(status["streak"], 2);
+
+    // Changing one field leaves the others alone.
+    let (_, body) = app.api(&token, "PUT", &day(TUE), json!({ "note": "better" })).await;
+    assert_eq!((body["skipped"].clone(), body["note"].clone()), (json!(true), json!("better")));
+    let (_, body) = app.api(&token, "PUT", &day(TUE), json!({ "skipped": false })).await;
+    assert_eq!(body["note"], "better");
+    assert_eq!(app.set(&token, &habit, WED, 1).await["streak"], 1);
+
+    let view = today(&app, &token, TUE).await;
+    let row = &view["habits"][0];
+    assert_eq!(row["note"], "better");
+    assert_eq!(row["week_values"], json!([1, 0, 1, 0, 0, 0, 0]));
+    assert_eq!(row["week_skipped"], json!(vec![false; 7]));
+
+    let (_, entries) =
+        app.get(&token, &format!("/api/v1/entries?from={MON}&to={WED}&habit_id={habit}")).await;
+    assert_eq!(entries[1]["note"], "better");
+
+    // An empty change and an overlong note are refused.
+    let (status, _) = app.api(&token, "PUT", &day(TUE), json!({})).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let (status, _) = app.api(&token, "PUT", &day(TUE), json!({ "note": "x".repeat(501) })).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn habit_extras_are_validated() {
+    let app = TestApp::new().await;
+    let token = app.user("alice").await;
+    let (status, body) = app
+        .api(
+            &token,
+            "POST",
+            "/api/v1/habits",
+            json!({
+                "name": "Read", "kind": "counter", "schedule": "daily", "goal": 20,
+                "unit": " pages ", "color": "red", "reminder_time": "21:30",
+            }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(body["unit"], "pages");
+    assert_eq!(body["color"], "red");
+    assert_eq!(body["reminder_time"], "21:30");
+    assert_eq!(body["category_id"], Value::Null);
+    let path = format!("/api/v1/habits/{}", body["id"].as_str().unwrap());
+
+    for bad in [
+        json!({ "color": "pink" }),
+        json!({ "reminder_time": "25:00" }),
+        json!({ "reminder_time": "9:5" }),
+        json!({ "unit": "x".repeat(21) }),
+        json!({ "category_id": Uuid::now_v7() }),
+    ] {
+        let (status, body) = app.api(&token, "PATCH", &path, bad.clone()).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{bad} -> {body}");
+    }
+    // A reminder is removed with null; leaving the field out keeps it.
+    let (_, body) = app.api(&token, "PATCH", &path, json!({ "color": "teal" })).await;
+    assert_eq!(body["reminder_time"], "21:30");
+    let (_, body) = app.api(&token, "PATCH", &path, json!({ "reminder_time": null })).await;
+    assert_eq!(body["reminder_time"], Value::Null);
+    // New habits default to the plain ink and no unit.
+    let plain = app.habit(&token, boolean("daily")).await;
+    let (_, body) = app.get(&token, &format!("/api/v1/habits/{plain}")).await;
+    assert_eq!((body["color"].clone(), body["unit"].clone()), (json!("ink"), json!("")));
+}
+
+#[tokio::test]
+async fn categories() {
+    let app = TestApp::new().await;
+    let token = app.user("alice").await;
+    let other = app.user("bob").await;
+    let create = |name: &'static str| {
+        let (app, token) = (&app, &token);
+        async move {
+            let (status, body) =
+                app.api(token, "POST", "/api/v1/categories", json!({ "name": name })).await;
+            assert_eq!(status, StatusCode::CREATED, "{body}");
+            body["id"].as_str().unwrap().to_string()
+        }
+    };
+    let health = create("Health").await;
+    let work = create("Work").await;
+
+    let habit = app.habit(&token, boolean("daily")).await;
+    let habit_path = format!("/api/v1/habits/{habit}");
+    let (status, body) =
+        app.api(&token, "PATCH", &habit_path, json!({ "category_id": health })).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["category_id"], health);
+
+    // Folding a category is remembered, and `/today` carries both.
+    let (_, body) = app
+        .api(&token, "PATCH", &format!("/api/v1/categories/{health}"), json!({ "collapsed": true }))
+        .await;
+    assert_eq!((body["name"].clone(), body["collapsed"].clone()), (json!("Health"), json!(true)));
+    let view = today(&app, &token, MON).await;
+    assert_eq!(view["categories"].as_array().unwrap().len(), 2);
+    assert_eq!(view["categories"][0]["collapsed"], true);
+    assert_eq!(view["habits"][0]["category_id"], health);
+
+    let (status, _) =
+        app.api(&token, "PUT", "/api/v1/categories/order", json!({ "ids": [work, health] })).await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, list) = app.get(&token, "/api/v1/categories").await;
+    assert_eq!(list[0]["name"], "Work");
+    let (status, _) =
+        app.api(&token, "PUT", "/api/v1/categories/order", json!({ "ids": [work] })).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+
+    // Someone else's category does not exist for them, nor can they use it.
+    let path = format!("/api/v1/categories/{health}");
+    let (status, _) = app.api(&other, "PATCH", &path, json!({ "name": "Mine" })).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let theirs = app.habit(&other, boolean("daily")).await;
+    let (status, _) = app
+        .api(&other, "PATCH", &format!("/api/v1/habits/{theirs}"), json!({ "category_id": health }))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+
+    // Deleting a category keeps its habits, uncategorised.
+    let (status, _) = app.api(&token, "DELETE", &path, json!(null)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (_, body) = app.get(&token, &habit_path).await;
+    assert_eq!(body["category_id"], Value::Null);
 }

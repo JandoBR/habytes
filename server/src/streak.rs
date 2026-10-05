@@ -2,8 +2,10 @@
 //!
 //! A period is a due day for `daily` and `weekdays` habits and a week for
 //! `weekly` ones. Days a `weekdays` habit is not due neither count nor break
-//! a streak. The period that is still running does not break one either: a
-//! streak only ends once a period has passed without the habit being done.
+//! a streak, and neither does a period that was skipped (unless the habit was
+//! done in it anyway). The period that is still running does not break one
+//! either: a streak only ends once a period has passed without the habit
+//! being done.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -29,63 +31,91 @@ pub struct Rules {
     pub week_start: i64,
 }
 
-impl Rules {
-    /// The start of the period before the one starting on `period`.
-    fn previous(&self, period: NaiveDate) -> NaiveDate {
-        if self.weekly {
-            return period - Days::new(7);
+/// One habit's history, reduced to what streaks need.
+struct Periods<'a> {
+    rules: &'a Rules,
+    /// The periods in which the goal was met.
+    done: BTreeSet<NaiveDate>,
+    /// The periods excused by a skipped day.
+    skipped: BTreeSet<NaiveDate>,
+}
+
+impl Periods<'_> {
+    /// Whether a period neither counts nor breaks a streak.
+    fn off(&self, period: NaiveDate) -> bool {
+        if self.done.contains(&period) {
+            return false;
         }
-        let mut day = period - Days::new(1);
-        while !is_due(self.weekdays, day) {
-            day = day - Days::new(1);
-        }
-        day
+        self.skipped.contains(&period)
+            || (!self.rules.weekly && !is_due(self.rules.weekdays, period))
     }
 
-    /// The period `date` belongs to, or the last one before it if it is not a due day.
-    fn period_of(&self, date: NaiveDate) -> NaiveDate {
-        if self.weekly {
-            week_start_date(date, self.week_start)
-        } else if is_due(self.weekdays, date) {
-            date
-        } else {
-            self.previous(date)
+    fn step_back(&self, period: NaiveDate) -> NaiveDate {
+        period - Days::new(if self.rules.weekly { 7 } else { 1 })
+    }
+
+    /// The last period before `period` that counts.
+    fn previous(&self, period: NaiveDate) -> NaiveDate {
+        let mut previous = self.step_back(period);
+        while self.off(previous) {
+            previous = self.step_back(previous);
         }
+        previous
+    }
+
+    /// The period `date` belongs to, or the last one before it that counts.
+    fn period_of(&self, date: NaiveDate) -> NaiveDate {
+        let period =
+            if self.rules.weekly { week_start_date(date, self.rules.week_start) } else { date };
+        if self.off(period) { self.previous(period) } else { period }
     }
 }
 
-/// The streaks as of `as_of`, from one habit's values by day. Later entries are ignored.
-pub fn streaks(rules: &Rules, entries: &BTreeMap<NaiveDate, i64>, as_of: NaiveDate) -> Streaks {
-    // The periods in which the goal was met.
+/// The streaks as of `as_of`, from one habit's values by day and the days
+/// that were skipped. Later days are ignored.
+pub fn streaks(
+    rules: &Rules,
+    entries: &BTreeMap<NaiveDate, i64>,
+    skipped: &BTreeSet<NaiveDate>,
+    as_of: NaiveDate,
+) -> Streaks {
+    let period = |date: NaiveDate| {
+        if rules.weekly { week_start_date(date, rules.week_start) } else { date }
+    };
     let mut totals: BTreeMap<NaiveDate, i64> = BTreeMap::new();
     for (&date, &value) in entries.range(..=as_of) {
-        if rules.weekly {
-            *totals.entry(week_start_date(date, rules.week_start)).or_default() += value;
-        } else if is_due(rules.weekdays, date) {
-            totals.insert(date, value);
+        if rules.weekly || is_due(rules.weekdays, date) {
+            *totals.entry(period(date)).or_default() += value;
         }
     }
-    let done: BTreeSet<NaiveDate> =
-        totals.into_iter().filter(|&(_, total)| total >= rules.goal).map(|(p, _)| p).collect();
+    let periods = Periods {
+        rules,
+        done: totals
+            .into_iter()
+            .filter(|&(_, total)| total >= rules.goal)
+            .map(|(p, _)| p)
+            .collect(),
+        skipped: skipped.range(..=as_of).map(|&date| period(date)).collect(),
+    };
 
     let mut best = 0;
     let mut run = 0;
     let mut last: Option<NaiveDate> = None;
-    for &period in &done {
-        run = if last == Some(rules.previous(period)) { run + 1 } else { 1 };
+    for &period in &periods.done {
+        run = if last == Some(periods.previous(period)) { run + 1 } else { 1 };
         best = best.max(run);
         last = Some(period);
     }
 
-    // The running period may still be completed, so it is skipped when open.
-    let mut period = rules.period_of(as_of);
-    if !done.contains(&period) {
-        period = rules.previous(period);
+    // The running period may still be completed, so it is passed over when open.
+    let mut period = periods.period_of(as_of);
+    if !periods.done.contains(&period) {
+        period = periods.previous(period);
     }
     let mut current = 0;
-    while done.contains(&period) {
+    while periods.done.contains(&period) {
         current += 1;
-        period = rules.previous(period);
+        period = periods.previous(period);
     }
 
     Streaks { current, best }
@@ -93,7 +123,11 @@ pub fn streaks(rules: &Rules, entries: &BTreeMap<NaiveDate, i64>, as_of: NaiveDa
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{Rules, Streaks};
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use chrono::{Days, NaiveDate};
+
     use crate::schedule::{parse_date, weekdays_to_mask};
 
     // 2025-06-02 is a Monday.
@@ -107,6 +141,40 @@ mod tests {
 
     fn daily(goal: i64) -> Rules {
         Rules { weekly: false, weekdays: None, goal, week_start: 1 }
+    }
+
+    /// Streaks with no skipped days.
+    fn streaks(rules: &Rules, log: &BTreeMap<NaiveDate, i64>, as_of: NaiveDate) -> Streaks {
+        super::streaks(rules, log, &BTreeSet::new(), as_of)
+    }
+
+    fn skipping(offsets: &[u64]) -> BTreeSet<NaiveDate> {
+        offsets.iter().map(|&offset| day(offset)).collect()
+    }
+
+    #[test]
+    fn a_skipped_day_neither_counts_nor_breaks() {
+        let log = entries(&[(0, 1), (1, 1), (3, 1)]);
+        // Without the skip, the missed Wednesday ends the run.
+        assert_eq!(streaks(&daily(1), &log, day(3)), Streaks { current: 1, best: 2 });
+        let with_skip = super::streaks(&daily(1), &log, &skipping(&[2]), day(3));
+        assert_eq!(with_skip, Streaks { current: 3, best: 3 });
+        // A skipped day that is still running leaves the streak as it was.
+        let today_skipped = super::streaks(&daily(1), &log, &skipping(&[2, 4]), day(4));
+        assert_eq!(today_skipped, Streaks { current: 3, best: 3 });
+        // Done on a skipped day still counts.
+        let done_anyway = super::streaks(&daily(1), &log, &skipping(&[1, 2]), day(3));
+        assert_eq!(done_anyway, Streaks { current: 3, best: 3 });
+    }
+
+    #[test]
+    fn a_skipped_day_excuses_a_short_week() {
+        let rules = Rules { weekly: true, weekdays: None, goal: 2, week_start: 1 };
+        // Week 1 met, week 2 one day only, week 3 met.
+        let log = entries(&[(0, 1), (1, 1), (7, 1), (14, 1), (15, 1)]);
+        assert_eq!(streaks(&rules, &log, day(15)), Streaks { current: 1, best: 1 });
+        let excused = super::streaks(&rules, &log, &skipping(&[9]), day(15));
+        assert_eq!(excused, Streaks { current: 2, best: 2 });
     }
 
     #[test]

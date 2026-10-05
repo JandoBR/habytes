@@ -31,7 +31,14 @@ pub struct Habit {
     pub webhook_secret: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
+    pub unit: String,
+    pub color: String,
+    pub category_id: Option<Uuid>,
+    pub reminder_time: Option<String>,
 }
+
+/// The inks a habit can be drawn in.
+const COLORS: [&str; 6] = ["ink", "red", "green", "violet", "orange", "teal"];
 
 impl Habit {
     pub fn webhook_url(&self, public_url: &str) -> Option<String> {
@@ -47,6 +54,10 @@ impl Habit {
             "schedule": self.schedule,
             "weekdays": self.weekdays.map(mask_to_weekdays),
             "goal": self.goal,
+            "unit": self.unit,
+            "color": self.color,
+            "category_id": self.category_id,
+            "reminder_time": self.reminder_time,
             "position": self.position,
             "archived": self.archived,
             "webhook_url": self.webhook_url(public_url),
@@ -79,6 +90,45 @@ fn validate_description(description: &str) -> ApiResult<()> {
         return Err(ApiError::validation("description must be at most 2000 characters"));
     }
     Ok(())
+}
+
+fn validate_unit(unit: &str) -> ApiResult<String> {
+    let unit = unit.trim();
+    if unit.chars().count() > 20 {
+        return Err(ApiError::validation("unit must be at most 20 characters"));
+    }
+    Ok(unit.to_string())
+}
+
+fn validate_color(color: &str) -> ApiResult<()> {
+    if !COLORS.contains(&color) {
+        return Err(ApiError::validation(format!("color must be one of {}", COLORS.join(", "))));
+    }
+    Ok(())
+}
+
+/// A reminder is a local time of day, `HH:MM`.
+fn validate_reminder(time: &str) -> ApiResult<()> {
+    let valid = time.len() == 5
+        && chrono::NaiveTime::parse_from_str(time, "%H:%M").is_ok()
+        && time.bytes().all(|b| b.is_ascii_digit() || b == b':');
+    if !valid {
+        return Err(ApiError::validation("reminder_time must be a time of day, HH:MM"));
+    }
+    Ok(())
+}
+
+/// A habit can only go into one of its owner's categories.
+async fn validate_category(db: &SqlitePool, user_id: Uuid, category: Uuid) -> ApiResult<()> {
+    let found: Option<i64> =
+        sqlx::query_scalar("SELECT 1 FROM categories WHERE id = ? AND user_id = ?")
+            .bind(category)
+            .bind(user_id)
+            .fetch_optional(db)
+            .await?;
+    found
+        .map(|_| ())
+        .ok_or_else(|| ApiError::validation("category_id is not one of your categories"))
 }
 
 /// Resolves the weekday mask for a schedule: required for `weekdays`, absent otherwise.
@@ -142,6 +192,11 @@ pub struct CreateHabit {
     schedule: String,
     weekdays: Option<Vec<i64>>,
     goal: Option<i64>,
+    #[serde(default)]
+    unit: String,
+    color: Option<String>,
+    category_id: Option<Uuid>,
+    reminder_time: Option<String>,
 }
 
 pub async fn create(
@@ -157,14 +212,24 @@ pub async fn create(
     let weekdays = resolve_weekdays(&body.schedule, body.weekdays.as_deref())?;
     let goal = body.goal.unwrap_or(1);
     validate_goal(&body.kind, &body.schedule, goal)?;
+    let unit = validate_unit(&body.unit)?;
+    let color = body.color.unwrap_or_else(|| "ink".into());
+    validate_color(&color)?;
+    if let Some(category) = body.category_id {
+        validate_category(&state.db, auth.user.id, category).await?;
+    }
+    if let Some(time) = &body.reminder_time {
+        validate_reminder(time)?;
+    }
 
     let id = body.id.unwrap_or_else(Uuid::now_v7);
     let now = now();
     let position = next_position(&state.db, auth.user.id).await?;
     let result = sqlx::query(
         "INSERT INTO habits (id, user_id, name, description, kind, schedule, weekdays, goal,
-                             position, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                             position, created_at, updated_at, unit, color, category_id,
+                             reminder_time)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (id) DO NOTHING",
     )
     .bind(id)
@@ -178,6 +243,10 @@ pub async fn create(
     .bind(position)
     .bind(now)
     .bind(now)
+    .bind(&unit)
+    .bind(&color)
+    .bind(body.category_id)
+    .bind(&body.reminder_time)
     .execute(&state.db)
     .await?;
     if result.rows_affected() == 0 {
@@ -215,6 +284,12 @@ pub struct PatchHabit {
     weekdays: Option<Option<Vec<i64>>>,
     goal: Option<i64>,
     archived: Option<bool>,
+    unit: Option<String>,
+    color: Option<String>,
+    #[serde(default, deserialize_with = "nullable")]
+    category_id: Option<Option<Uuid>>,
+    #[serde(default, deserialize_with = "nullable")]
+    reminder_time: Option<Option<String>>,
 }
 
 pub async fn patch(
@@ -253,6 +328,26 @@ pub async fn patch(
     }
     validate_goal(&habit.kind, &habit.schedule, habit.goal)?;
 
+    if let Some(unit) = &body.unit {
+        habit.unit = validate_unit(unit)?;
+    }
+    if let Some(color) = body.color {
+        validate_color(&color)?;
+        habit.color = color;
+    }
+    if let Some(category) = body.category_id {
+        if let Some(category) = category {
+            validate_category(&state.db, auth.user.id, category).await?;
+        }
+        habit.category_id = category;
+    }
+    if let Some(time) = body.reminder_time {
+        if let Some(time) = &time {
+            validate_reminder(time)?;
+        }
+        habit.reminder_time = time;
+    }
+
     if let Some(archived) = body.archived {
         if habit.archived && !archived {
             habit.position = next_position(&state.db, auth.user.id).await?;
@@ -263,7 +358,8 @@ pub async fn patch(
     habit.updated_at = now();
     sqlx::query(
         "UPDATE habits SET name = ?, description = ?, schedule = ?, weekdays = ?, goal = ?,
-                           position = ?, archived = ?, updated_at = ?
+                           position = ?, archived = ?, updated_at = ?, unit = ?, color = ?,
+                           category_id = ?, reminder_time = ?
          WHERE id = ?",
     )
     .bind(&habit.name)
@@ -274,6 +370,10 @@ pub async fn patch(
     .bind(habit.position)
     .bind(habit.archived)
     .bind(habit.updated_at)
+    .bind(&habit.unit)
+    .bind(&habit.color)
+    .bind(habit.category_id)
+    .bind(&habit.reminder_time)
     .bind(habit.id)
     .execute(&state.db)
     .await?;
