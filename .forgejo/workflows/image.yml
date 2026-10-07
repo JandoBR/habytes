@@ -13,8 +13,6 @@ on:
       - "Dockerfile"
       - ".dockerignore"
       - "flake.*"
-      - "scripts/deploy"
-      - "scripts/prune-images"
       - ".forgejo/workflows/image.yml"
   workflow_dispatch:
 
@@ -66,8 +64,13 @@ jobs:
           docker push "$IMAGE:${{ github.sha }}"
           docker push "$IMAGE:latest"
 
+      # Both steps run scripts kept in Dev-kit (ci/scripts).
       - name: Deploy
-        run: scripts/deploy
+        uses: https://forgejo.example.com/Jando/Dev-kit/ci/actions/deploy@main
+        with:
+          stack: habitd
 
       - name: Prune old images
-        run: scripts/prune-images
+        uses: https://forgejo.example.com/Jando/Dev-kit/ci/actions/prune-images@main
+        with:
+          image: ${{ env.IMAGE }}

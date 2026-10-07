@@ -76,7 +76,7 @@ habit-tracker/
   SPEC.md  PROGRESS.md  README.md
   Dockerfile            habitd with the web app embedded
   flake.nix             the development environment
-  scripts/              publish-image, deploy, prune-images, publish-release, make-icons
+  scripts/              publish-image, publish-release, make-icons
   .forgejo/workflows/   image.yml, android.yml
   server/               crate `habitd`
     migrations/         SQLx migrations, embedded and run at startup

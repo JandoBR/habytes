@@ -32,7 +32,7 @@ no passwords to manage.
 server/     habitd (Rust, Axum, SQLx/SQLite)
 app/        Flutter app: web and Android
   android/  the widget, NFC scans and reminders, in Kotlin
-scripts/    publish-image, deploy, prune-images, publish-release, make-icons
+scripts/    publish-image, publish-release, make-icons
 SPEC.md     what it is and how it works; PROGRESS.md: what has been verified, and why
 ```
 
