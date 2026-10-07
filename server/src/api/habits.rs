@@ -11,7 +11,10 @@ use uuid::Uuid;
 use crate::{
     error::{ApiError, ApiResult},
     extract::{ApiJson, AuthUser, parse_id},
-    schedule::{Period, mask_to_weekdays, validate_every, validate_goal, weekdays_to_mask},
+    schedule::{
+        Period, mask_to_weekdays, parse_date, today_in, validate_every, validate_goal,
+        weekdays_to_mask,
+    },
     state::AppState,
     util::{now, random_secret, rfc3339},
 };
@@ -39,6 +42,8 @@ pub struct Habit {
     pub category_id: Option<Uuid>,
     /// A JSON list of [`Reminder`]s.
     pub reminders: String,
+    /// The day the schedule was set, `YYYY-MM-DD`; none for older habits.
+    pub anchor: Option<String>,
 }
 
 /// The inks a habit can be drawn in.
@@ -47,7 +52,8 @@ const COLORS: [&str; 6] = ["ink", "red", "green", "violet", "orange", "teal"];
 impl Habit {
     /// What the goal is measured over.
     pub fn period(&self) -> Period {
-        Period::of(&self.schedule, self.every)
+        let anchor = self.anchor.as_deref().and_then(|anchor| parse_date(anchor).ok());
+        Period::of(&self.schedule, self.every).anchored(anchor)
     }
 
     pub fn webhook_url(&self, public_url: &str) -> Option<String> {
@@ -67,6 +73,7 @@ impl Habit {
             "kind": self.kind,
             "schedule": self.schedule,
             "every": self.every,
+            "anchor": self.anchor,
             "weekdays": self.weekdays.map(mask_to_weekdays),
             "goal": self.goal,
             "unit": self.unit,
@@ -279,8 +286,8 @@ pub async fn create(
     let result = sqlx::query(
         "INSERT INTO habits (id, user_id, name, description, kind, schedule, every, weekdays,
                              goal, position, created_at, updated_at, unit, color, category_id,
-                             reminders)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                             reminders, anchor)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (id) DO NOTHING",
     )
     .bind(id)
@@ -299,6 +306,7 @@ pub async fn create(
     .bind(&color)
     .bind(body.category_id)
     .bind(&reminders)
+    .bind(today_in(&auth.user.timezone).to_string())
     .execute(&state.db)
     .await?;
     if result.rows_affected() == 0 {
@@ -376,8 +384,13 @@ pub async fn patch(
         }
     };
     // A new schedule starts over at one week, month or year at a time.
+    let every_before = habit.every;
     if let Some(every) = body.every.or(schedule_changed.then_some(1)) {
         habit.every = every;
+    }
+    // And its periods are counted from now.
+    if schedule_changed || habit.every != every_before {
+        habit.anchor = Some(today_in(&auth.user.timezone).to_string());
     }
     validate_every(&habit.schedule, habit.every)?;
     if let Some(goal) = body.goal {
@@ -413,7 +426,7 @@ pub async fn patch(
     sqlx::query(
         "UPDATE habits SET name = ?, description = ?, schedule = ?, every = ?, weekdays = ?,
                            goal = ?, position = ?, archived = ?, updated_at = ?, unit = ?, color = ?,
-                           category_id = ?, reminders = ?
+                           category_id = ?, reminders = ?, anchor = ?
          WHERE id = ?",
     )
     .bind(&habit.name)
@@ -429,6 +442,7 @@ pub async fn patch(
     .bind(&habit.color)
     .bind(habit.category_id)
     .bind(&habit.reminders)
+    .bind(&habit.anchor)
     .bind(habit.id)
     .execute(&state.db)
     .await?;

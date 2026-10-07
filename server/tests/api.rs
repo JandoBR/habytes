@@ -451,6 +451,11 @@ async fn an_interval_is_due_again_some_days_after_it_was_done() {
     assert_eq!(row(today(&app, &token, WED).await)["due"], false);
     assert_eq!(row(today(&app, &token, "2025-06-05").await)["due"], true);
 
+    // Done early, while it rests, it is part of that day all the same.
+    app.set(&token, &habit, WED, 1).await;
+    assert_eq!(row(today(&app, &token, WED).await)["due"], true);
+    app.set(&token, &habit, WED, 0).await;
+
     // Done on the day it was due the streak goes on; left any longer it ends.
     assert_eq!(app.set(&token, &habit, "2025-06-05", 1).await["streak"], 2);
     let late = row(today(&app, &token, NEXT_MON).await);
@@ -479,7 +484,7 @@ async fn targets_can_span_several_periods() {
     );
     assert_eq!(today(&app, &token, "2025-07-01").await["habits"][0]["done"], false);
 
-    // Two weeks at a time: both weeks add up.
+    // Two weeks at a time, counted from the week the schedule was set in.
     let (status, patched) = app
         .api(&token, "PATCH", &path, json!({ "schedule": "weekly", "every": 2, "goal": 2 }))
         .await;
@@ -488,11 +493,26 @@ async fn targets_can_span_several_periods() {
         (patched["schedule"].clone(), patched["every"].clone()),
         (json!("weekly"), json!(2))
     );
-    let first = app.set(&token, id, MON, 1).await;
-    let start = first["period_start"].as_str().unwrap().to_string();
-    let other_week = if start == MON { NEXT_MON } else { "2025-05-26" };
-    let status = app.set(&token, id, other_week, 1).await;
-    assert_eq!((status["period_value"].clone(), status["done"].clone()), (json!(2), json!(true)));
+    let anchor = patched["anchor"].as_str().unwrap().to_string();
+    let now = today(&app, &token, &anchor).await["habits"][0].clone();
+    let start = now["period_start"].as_str().unwrap().to_string();
+    let end = now["period_end"].as_str().unwrap().to_string();
+    assert_eq!(today(&app, &token, &anchor).await["week_start_date"], start.as_str());
+    let days = |from: &str, to: &str| {
+        let date = |raw: &str| chrono::NaiveDate::parse_from_str(raw, "%Y-%m-%d").unwrap();
+        (date(to) - date(from)).num_days()
+    };
+    assert_eq!(days(&start, &end), 13);
+    // The days before it are in the block before.
+    app.set(&token, id, &start, 1).await;
+    let before = (chrono::NaiveDate::parse_from_str(&start, "%Y-%m-%d").unwrap()
+        - chrono::Days::new(1))
+    .to_string();
+    let status = app.set(&token, id, &before, 1).await;
+    assert_eq!(
+        (status["period_end"].clone(), status["period_value"].clone()),
+        (json!(before), json!(1))
+    );
 
     // A new schedule goes back to one period at a time unless it says otherwise.
     let (_, patched) = app.api(&token, "PATCH", &path, json!({ "schedule": "yearly" })).await;

@@ -226,9 +226,13 @@ class _HabitRow extends ConsumerWidget {
     // A target can be checked today without being done for its period.
     final marked = isBoolean ? habit.value > 0 : habit.done;
     final excused = habit.skipped && !marked;
+    final dueFrom = habit.dueFrom;
     final detail = [
       if (excused) 'skipped',
       if (habit.progress.isNotEmpty) habit.progress,
+      // A resting habit says when it comes round again.
+      if (!habit.due && dueFrom != null)
+        'due ${weekdayShort[dueFrom.weekday - 1]} ${dueFrom.day} ${monthShort[dueFrom.month - 1]}',
       // One period in a row is not worth announcing.
       if (habit.streak > 1) '${streakLength(habit.streak, habit.schedule, habit.every)} running',
     ].join(' · ');

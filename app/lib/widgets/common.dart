@@ -204,9 +204,23 @@ class WeekStrip extends StatelessWidget {
     final shown = view.dayIndex;
     const size = 10.0;
 
+    /// Whether an interval habit was resting on a day: after one of this week's
+    /// days it was done on, or after the last one before the shown day.
+    bool resting(int i) {
+      if (habit.schedule != Schedule.interval) return false;
+      for (var j = i - 1; j >= 0 && i - j < habit.every; j--) {
+        if (habit.weekValues[j] >= habit.goal) return true;
+      }
+      final from = habit.dueFrom;
+      if (from == null) return false;
+      final day = start.add(Duration(days: i));
+      return day.isBefore(from) && day.isAfter(from.subtract(Duration(days: habit.every)));
+    }
+
     Widget day(int i) {
       final value = habit.weekValues[i];
-      final due = habit.weekdays?.contains(start.add(Duration(days: i)).weekday) ?? true;
+      final due =
+          (habit.weekdays?.contains(start.add(Duration(days: i)).weekday) ?? true) && !resting(i);
       // A target has no daily goal: any amount is a day that counted.
       final met = habit.schedule.isTarget ? value > 0 : value >= habit.goal;
       final Color fill;

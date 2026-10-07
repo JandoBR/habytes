@@ -143,6 +143,7 @@ CREATE TABLE habits (
   color           TEXT NOT NULL DEFAULT 'ink',   -- ink, red, green, violet, orange, teal
   category_id     BLOB REFERENCES categories(id) ON DELETE SET NULL,
   reminders       TEXT NOT NULL DEFAULT '[]',    -- JSON: [{ "time": "HH:MM", "days": [1..7] | null }]
+  anchor          TEXT,                          -- the day the schedule was set, YYYY-MM-DD
   position        INTEGER NOT NULL DEFAULT 0,
   archived        INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1)),
   webhook_secret  TEXT UNIQUE,                   -- NULL = webhook disabled
@@ -211,9 +212,9 @@ Schedule and kind are chosen when the habit is created. Completion is never stor
 | `weekly`, `monthly`, `yearly` | every day until it is met | `every` weeks, months or years | boolean: days per period. Counter: total per period | the sum of the period's values ≥ goal |
 
 * `weekly`, `monthly` and `yearly` are **targets**: so many times over a period rather than on given days. `every` (1–52, 1 by default and always 1 for `daily` and `weekdays`) makes the period several weeks, months or years: `monthly` with `every: 3` is once a quarter.
-* An `interval` habit (`every` from 1 to 365 days) rests after a day it was done on and comes due again `every` days later; it then stays due until it is done. One that was never done is due.
+* An `interval` habit (`every` from 1 to 365 days) rests after a day it was done on and comes due again `every` days later; it then stays due until it is done. One that was never done is due, and so is a resting one on a day it was logged on anyway.
 * A target that is met is no longer due for the rest of its period, except on a day it was logged on. Like any habit that is not due, it can still be logged.
-* A week starts on the user's `week_start` day and is evaluated in calendar dates, so no time zone is involved. Periods of several weeks are blocks counted from a fixed week (that of 5 January 1970), months are calendar months in blocks counted from January, and years are calendar years.
+* A week starts on the user's `week_start` day and is evaluated in calendar dates, so no time zone is involved. Periods of several weeks are blocks counted from the week of the habit's `anchor` — the day its schedule or `every` was last set, in the user's time zone — so that the first block is a whole one (habits from before anchors count from the week of 5 January 1970), months are calendar months in blocks counted from January, and years are calendar years.
 * A boolean target's goal cannot be more days than its period has: 7 for each week, 30 for each month (365 × `every` / 12, rounded down), 365 for each year.
 * **`value`** is one day's entry. **`period_value`** is what completion is measured on: the same as `value` for `daily` and `weekdays`, the sum of the period's values for a target. **`period_start`** and **`period_end`** are the first and last day of that period.
 * A `weekdays` habit can still be logged on a day it is not due. The entry is kept, but the habit is not shown in the widget that day.
@@ -313,6 +314,7 @@ Habit object:
   "kind": "counter",
   "schedule": "weekdays",
   "every": 1,
+  "anchor": "2026-10-04",
   "weekdays": [1, 2, 3, 4, 5],
   "goal": 8,
   "unit": "glasses",
@@ -363,7 +365,7 @@ Status object, returned by every write:
 
 | Method and path | Purpose |
 | --- | --- |
-| `GET /today?date=YYYY-MM-DD` | The widget's and Today's read endpoint: `{ date, week_start_date, categories: [...], habits: [...] }`. `date` defaults to today in the user's time zone. Each habit row is the status above plus `id`, `name`, `kind`, `schedule`, `every`, `weekdays`, `goal`, `unit`, `color`, `category_id`, `reminders`, `due`, `due_from`, `week_values` and `week_skipped`. `due` is false for a `weekdays` habit on a day outside its mask, an `interval` habit that is resting, and a met target with nothing logged that day. `due_from` is the day an `interval` habit comes due again after it was last done before `date`, `null` for one never done and for other schedules. `week_values` and `week_skipped` give each of the week's seven days, from `week_start_date`. Archived habits are left out. |
+| `GET /today?date=YYYY-MM-DD` | The widget's and Today's read endpoint: `{ date, week_start_date, categories: [...], habits: [...] }`. `date` defaults to today in the user's time zone. Each habit row is the status above plus `id`, `name`, `kind`, `schedule`, `every`, `weekdays`, `goal`, `unit`, `color`, `category_id`, `reminders`, `due`, `due_from`, `week_values` and `week_skipped`. `due` is false for a `weekdays` habit on a day outside its mask, and, with nothing logged that day, an `interval` habit that is resting and a target that is met. `due_from` is the day an `interval` habit comes due again after it was last done before `date`, `null` for one never done and for other schedules. `week_values` and `week_skipped` give each of the week's seven days, from `week_start_date`. Archived habits are left out. |
 | `GET /entries?from=&to=&habit_id=` | Raw entries `{ habit_id, date, value, skipped, note }` in an inclusive date range of at most 366 days. `habit_id` is optional. Days with no row are omitted. |
 | `POST /habits/{id}/entries/{date}/increment` | Body `{ "op_id": "<uuid>", "delta": 1 }`. Returns the status. |
 | `PUT /habits/{id}/entries/{date}` | Body with any of `value`, `skipped` and `note`. What is left out keeps its value. Returns the status. |

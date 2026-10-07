@@ -350,6 +350,9 @@ class ModelTest {
         // It rests for two days, keeping its streak, and is due on the third.
         val tuesday = done.rolledTo(MONDAY.plusDays(1))
         assertTrue(tuesday.dueHabits.isEmpty())
+        // Done early all the same, it is part of that day.
+        val early = tuesday.applying(Op.Set("2", "plants", MONDAY.plusDays(1), 1))
+        assertEquals(listOf("plants"), early.dueHabits.map { it.id })
         assertFalse(tuesday.habit("plants")!!.needsReminder(MONDAY.plusDays(1)))
         assertEquals(3, tuesday.habit("plants")!!.streak)
         val thursday = tuesday.rolledTo(MONDAY.plusDays(3))

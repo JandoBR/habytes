@@ -132,6 +132,14 @@ void main() {
       expect(periodBounds(Schedule.weekly, 2, end, weekStart), (start, end));
       final next = end.add(const Duration(days: 1));
       expect(periodBounds(Schedule.weekly, 2, next, weekStart).$1, next);
+
+      // Anchored, the block starts with the week the anchor is in.
+      for (final anchor in [wednesday, wednesday.add(const Duration(days: 7))]) {
+        final week = weekStartDate(anchor, weekStart);
+        final (first, last) = periodBounds(Schedule.weekly, 2, anchor, weekStart, anchor);
+        expect(first, week);
+        expect(last, week.add(const Duration(days: 13)));
+      }
     }
   });
 

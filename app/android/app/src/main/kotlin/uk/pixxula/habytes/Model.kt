@@ -64,12 +64,12 @@ data class Habit(
 
     /**
      * Whether it belongs in [date]'s list: on one of its weekdays, once an
-     * interval has run out, and for a target until it is met. A target met
-     * today stays for the day.
+     * interval has run out, and for a target until it is met. A resting
+     * interval or a met target stays on a day it was logged on.
      */
     fun isDueOn(date: LocalDate): Boolean = when {
         schedule.isTarget -> !done || checkedToday
-        dueFrom != null -> !date.isBefore(dueFrom)
+        dueFrom != null -> checkedToday || !date.isBefore(dueFrom)
         else -> weekdays?.contains(date.dayOfWeek.value) ?: true
     }
 

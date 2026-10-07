@@ -18,8 +18,8 @@ pub fn week_start_date(date: NaiveDate, week_start: i64) -> NaiveDate {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Period {
     Day,
-    /// This many weeks, in blocks counted from a fixed week.
-    Weeks(i64),
+    /// This many weeks, in blocks counted from the week of the second date.
+    Weeks(i64, NaiveDate),
     /// This many calendar months, in blocks counted from January: 3 is a
     /// quarter, 12 a year.
     Months(i64),
@@ -29,10 +29,20 @@ impl Period {
     /// The period a schedule measures on. Only target schedules have `every`.
     pub fn of(schedule: &str, every: i64) -> Self {
         match schedule {
-            "weekly" => Self::Weeks(every),
+            // 1970-01-05 is a Monday; without an anchor any fixed week will do.
+            "weekly" => Self::Weeks(every, NaiveDate::from_ymd_opt(1970, 1, 5).unwrap()),
             "monthly" => Self::Months(every),
             "yearly" => Self::Months(12 * every),
             _ => Self::Day,
+        }
+    }
+
+    /// The period with its blocks of weeks counted from the week `anchor` is
+    /// in: the day the schedule was set, so that its first block is a whole one.
+    pub fn anchored(self, anchor: Option<NaiveDate>) -> Self {
+        match (self, anchor) {
+            (Self::Weeks(count, _), Some(anchor)) => Self::Weeks(count, anchor),
+            _ => self,
         }
     }
 
@@ -40,10 +50,8 @@ impl Period {
     pub fn start(self, date: NaiveDate, week_start: i64) -> NaiveDate {
         match self {
             Self::Day => date,
-            Self::Weeks(count) => {
-                // 1970-01-05 is a Monday; any fixed week would do.
-                let origin =
-                    week_start_date(NaiveDate::from_ymd_opt(1970, 1, 5).unwrap(), week_start);
+            Self::Weeks(count, anchor) => {
+                let origin = week_start_date(anchor, week_start);
                 let week = week_start_date(date, week_start);
                 let weeks = (week - origin).num_days() / 7;
                 week - Days::new(weeks.rem_euclid(count) as u64 * 7)
@@ -60,7 +68,7 @@ impl Period {
         let start = self.start(date, week_start);
         match self {
             Self::Day => start,
-            Self::Weeks(count) => start + Days::new(count as u64 * 7 - 1),
+            Self::Weeks(count, _) => start + Days::new(count as u64 * 7 - 1),
             Self::Months(count) => {
                 let month = i64::from(start.year()) * 12 + i64::from(start.month0());
                 first_of_month(month + count) - Days::new(1)
@@ -72,7 +80,7 @@ impl Period {
     fn max_days(self) -> i64 {
         match self {
             Self::Day => 1,
-            Self::Weeks(count) => 7 * count,
+            Self::Weeks(count, _) => 7 * count,
             Self::Months(count) => 365 * count / 12,
         }
     }
@@ -311,7 +319,19 @@ mod tests {
             }
             assert_eq!(period.start(start + Days::new(14), week_start), start + Days::new(14));
             assert_eq!(period.start(start - Days::new(1), week_start), start - Days::new(14));
+
+            // Anchored, the block starts with the week the anchor is in.
+            for anchor in ["2026-10-07", "2026-10-14", "2026-09-30"] {
+                let anchored = period.anchored(Some(d(anchor)));
+                let week = week_start_date(d(anchor), week_start);
+                assert_eq!(anchored.start(d(anchor), week_start), week);
+                assert_eq!(anchored.end(d(anchor), week_start), week + Days::new(13));
+                assert_eq!(anchored.start(week - Days::new(1), week_start), week - Days::new(14));
+            }
         }
+        // Only blocks of weeks have an anchor.
+        let quarter = Period::of("monthly", 3).anchored(Some(d("2026-11-30")));
+        assert_eq!(quarter.start(d("2026-11-30"), 1), d("2026-10-01"));
     }
 
     #[test]

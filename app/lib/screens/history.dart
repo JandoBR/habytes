@@ -329,8 +329,7 @@ class _Heatmap extends StatelessWidget {
 
   bool get _target => habit.schedule.isTarget;
 
-  (DateTime, DateTime) _period(DateTime day) =>
-      periodBounds(habit.schedule, habit.every, day, weekStart);
+  (DateTime, DateTime) _period(DateTime day) => habit.periodOn(day, weekStart);
 
   /// How full a day's cell is drawn, from 0 to 1.
   double _fill(int value) {

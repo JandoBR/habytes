@@ -206,7 +206,8 @@ mod tests {
 
     #[test]
     fn a_skipped_day_excuses_a_short_week() {
-        let rules = Rules { period: Period::Weeks(1), weekdays: None, goal: 2, week_start: 1 };
+        let rules =
+            Rules { period: Period::of("weekly", 1), weekdays: None, goal: 2, week_start: 1 };
         // Week 1 met, week 2 one day only, week 3 met.
         let log = entries(&[(0, 1), (1, 1), (7, 1), (14, 1), (15, 1)]);
         assert_eq!(streaks(&rules, &log, day(15)), Streaks { current: 1, best: 1 });
@@ -268,7 +269,8 @@ mod tests {
 
     #[test]
     fn a_weekly_streak_counts_weeks() {
-        let rules = Rules { period: Period::Weeks(1), weekdays: None, goal: 3, week_start: 1 };
+        let rules =
+            Rules { period: Period::of("weekly", 1), weekdays: None, goal: 3, week_start: 1 };
         // Week 1: three days. Week 2: three days. Week 3: two so far.
         let log = entries(&[(0, 1), (2, 1), (4, 1), (7, 1), (8, 1), (13, 1), (14, 1), (15, 1)]);
         assert_eq!(streaks(&rules, &log, day(15)), Streaks { current: 2, best: 2 });
@@ -284,10 +286,12 @@ mod tests {
     fn weeks_follow_the_users_week_start() {
         // Sunday and Monday are in different weeks when weeks start on Monday.
         let log = entries(&[(6, 2), (7, 2)]);
-        let monday = Rules { period: Period::Weeks(1), weekdays: None, goal: 2, week_start: 1 };
+        let monday =
+            Rules { period: Period::of("weekly", 1), weekdays: None, goal: 2, week_start: 1 };
         assert_eq!(streaks(&monday, &log, day(7)), Streaks { current: 2, best: 2 });
         // With weeks starting on Sunday both days fall in the same week.
-        let sunday = Rules { period: Period::Weeks(1), weekdays: None, goal: 4, week_start: 7 };
+        let sunday =
+            Rules { period: Period::of("weekly", 1), weekdays: None, goal: 4, week_start: 7 };
         assert_eq!(streaks(&sunday, &log, day(7)), Streaks { current: 1, best: 1 });
     }
 

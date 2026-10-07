@@ -58,15 +58,22 @@ String periodRate(Schedule schedule, [int every = 1]) =>
     every == 1 ? 'a ${schedule.unit}' : 'every $every ${schedule.unit}s';
 
 /// The first and last day of the period containing [date]. Several weeks are
-/// counted in blocks from a fixed week, several months from January, so that
-/// three months are a calendar quarter.
-(DateTime, DateTime) periodBounds(Schedule schedule, int every, DateTime date, int weekStart) {
+/// counted in blocks from the week [anchor] is in (the day the schedule was
+/// set) or else from a fixed week, several months from January, so that three
+/// months are a calendar quarter.
+(DateTime, DateTime) periodBounds(
+  Schedule schedule,
+  int every,
+  DateTime date,
+  int weekStart, [
+  DateTime? anchor,
+]) {
   switch (schedule) {
     case Schedule.daily || Schedule.weekdays || Schedule.interval:
       return (date, date);
     case Schedule.weekly:
-      // 1970-01-05 is a Monday; any fixed week would do.
-      final origin = weekStartDate(DateTime.utc(1970, 1, 5), weekStart);
+      // 1970-01-05 is a Monday; without an anchor any fixed week will do.
+      final origin = weekStartDate(anchor ?? DateTime.utc(1970, 1, 5), weekStart);
       final week = weekStartDate(date, weekStart);
       final weeks = week.difference(origin).inDays ~/ 7;
       final start = week.subtract(Duration(days: (weeks % every) * 7));
@@ -169,6 +176,7 @@ class Habit {
     required this.categoryId,
     required this.reminders,
     this.createdAt,
+    this.anchor,
   });
 
   factory Habit.fromJson(Map<String, dynamic> json) => Habit(
@@ -190,6 +198,7 @@ class Habit {
         .map((r) => Reminder.fromJson(r as Map<String, dynamic>))
         .toList(),
     createdAt: DateTime.tryParse(json['created_at'] as String? ?? ''),
+    anchor: json['anchor'] == null ? null : parseYmd(json['anchor'] as String),
   );
 
   final String id;
@@ -220,6 +229,13 @@ class Habit {
 
   /// When the habit was made, if the server said.
   final DateTime? createdAt;
+
+  /// The day its schedule was set, which blocks of several weeks count from.
+  final DateTime? anchor;
+
+  /// The first and last day of the period [date] is in.
+  (DateTime, DateTime) periodOn(DateTime date, int weekStart) =>
+      periodBounds(schedule, every, date, weekStart, anchor);
 
   bool isDueOn(DateTime date) => weekdays?.contains(date.weekday) ?? true;
 }
@@ -279,6 +295,7 @@ class TodayHabit {
     required this.color,
     required this.categoryId,
     required this.due,
+    this.dueFrom,
     required this.value,
     required this.periodValue,
     required this.done,
@@ -302,6 +319,7 @@ class TodayHabit {
     color: json['color'] as String? ?? 'ink',
     categoryId: json['category_id'] as String?,
     due: json['due'] as bool,
+    dueFrom: json['due_from'] == null ? null : parseYmd(json['due_from'] as String),
     value: json['value'] as int,
     periodValue: json['period_value'] as int,
     done: json['done'] as bool,
@@ -324,6 +342,10 @@ class TodayHabit {
   final String color;
   final String? categoryId;
   final bool due;
+
+  /// The day an interval habit comes due again after the last time it was
+  /// done before the shown day; null if it never was.
+  final DateTime? dueFrom;
 
   /// The day's own value.
   final int value;
@@ -356,8 +378,14 @@ class TodayHabit {
     unit: unit,
     color: color,
     categoryId: categoryId,
-    // As the server has it: a met target is only due on a day it was logged on.
-    due: schedule.isTarget ? !status.done || status.value > 0 : due,
+    // As the server has it: a met target or a resting interval is still due
+    // on a day it was logged on.
+    due: switch (schedule) {
+      Schedule.weekly || Schedule.monthly || Schedule.yearly => !status.done || status.value > 0,
+      Schedule.interval => status.value > 0 || !(dueFrom?.isAfter(parseYmd(status.date)) ?? false),
+      Schedule.daily || Schedule.weekdays => due,
+    },
+    dueFrom: dueFrom,
     value: status.value,
     periodValue: status.periodValue,
     done: status.done,

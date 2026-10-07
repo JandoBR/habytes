@@ -98,17 +98,20 @@ impl History {
     }
 
     /// Whether the habit belongs in `date`'s list: on one of its weekdays, once
-    /// an interval has run out, and for a target until it is met. A target met
-    /// on `date` itself stays for that day.
+    /// an interval has run out, and for a target until it is met. A resting
+    /// interval or a met target stays on a day it was logged on.
     fn due(&self, habit: &Habit, week_start: i64, date: NaiveDate) -> bool {
+        let logged = self.values.get(&date).is_some_and(|&value| value > 0);
         let period = habit.period();
+        if habit.schedule == "interval" {
+            return logged || self.due_from(habit, date).is_none_or(|from| date >= from);
+        }
         if period == Period::Day {
-            return is_due(habit.weekdays, date)
-                && self.due_from(habit, date).is_none_or(|from| date >= from);
+            return is_due(habit.weekdays, date);
         }
         let days = period.start(date, week_start)..=period.end(date, week_start);
         let total: i64 = self.values.range(days).map(|(_, value)| value).sum();
-        total < habit.goal || self.values.get(&date).is_some_and(|&value| value > 0)
+        total < habit.goal || logged
     }
 
     /// Each day of the week containing `date`: its value and whether it was skipped.

@@ -104,7 +104,7 @@ HabitStats computeStats(
   Iterable<(DateTime, DateTime)> periods() sync* {
     var day = today;
     while (true) {
-      final bounds = periodBounds(habit.schedule, habit.every, day, weekStart);
+      final bounds = habit.periodOn(day, weekStart);
       yield bounds;
       day = bounds.$1.subtract(const Duration(days: 1));
     }
@@ -120,7 +120,7 @@ HabitStats computeStats(
     }
     // As many periods as fit in the span, and at least the running one and
     // the one before it.
-    final (start, end) = periodBounds(habit.schedule, habit.every, today, weekStart);
+    final (start, end) = habit.periodOn(today, weekStart);
     final length = end.difference(start).inDays + 1;
     var met = 0, counted = 0;
     for (final (start, end) in periods().take((span / length).round().clamp(2, span))) {
