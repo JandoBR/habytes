@@ -52,7 +52,8 @@ class _Header extends ConsumerWidget {
     final selected = ref.read(selectedDateProvider.notifier);
 
     // Keep the last summary while another day loads, so the header does not jump.
-    final habits = ref.watch(todayProvider).value?.habits.where((h) => h.due).toList() ?? [];
+    final habits =
+        ref.watch(todayProvider).value?.habits.where((h) => h.due && h.inTally).toList() ?? [];
     // A skipped habit is not part of the day, unless it was done anyway.
     habits.removeWhere((h) => h.skipped && !h.done);
     final done = habits.where((h) => h.done).length;
@@ -170,7 +171,7 @@ class _CategoryHeader extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final palette = AppPalette.of(context);
-    final counted = habits.where((h) => h.done || !h.skipped).toList();
+    final counted = habits.where((h) => h.inTally && (h.done || !h.skipped)).toList();
     final done = counted.where((h) => h.done).length;
     return InkWell(
       onTap: () => guard(
@@ -193,10 +194,12 @@ class _CategoryHeader extends ConsumerWidget {
                 style: Theme.of(context).textTheme.titleSmall,
               ),
             ),
-            Text(
-              '$done/${counted.length}',
-              style: monoStyle(context, size: 12).copyWith(color: palette.muted),
-            ),
+            // Nothing to count when all of them are skipped or long targets.
+            if (counted.isNotEmpty)
+              Text(
+                '$done/${counted.length}',
+                style: monoStyle(context, size: 12).copyWith(color: palette.muted),
+              ),
             const SizedBox(width: 8),
             Icon(
               category.collapsed ? Icons.expand_more : Icons.expand_less,

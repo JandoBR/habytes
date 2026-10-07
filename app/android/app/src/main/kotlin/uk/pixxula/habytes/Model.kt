@@ -102,6 +102,14 @@ data class Habit(
     /** Skipped today, and not done all the same. */
     val excused: Boolean get() = skipped && !done
 
+    /**
+     * Whether it counts in the day's "done" tally: not when excused, and not a
+     * target over more than a week, which would hold every day back until its
+     * period was met.
+     */
+    val inTally: Boolean
+        get() = !excused && (!schedule.isTarget || (schedule == Schedule.WEEKLY && every == 1))
+
     /** Whether a reminder for this habit is still called for on [date]. */
     fun needsReminder(date: LocalDate): Boolean = isDueOn(date) && !done && !skipped
 
@@ -209,8 +217,8 @@ data class Cache(
     /** The habits due on the cache's date. */
     val dueHabits: List<Habit> get() = habits.filter { it.isDueOn(date) }
 
-    /** The due habits that are part of the day: all but those excused. */
-    val countedHabits: List<Habit> get() = dueHabits.filterNot { it.excused }
+    /** The due habits that are part of the day's tally. */
+    val countedHabits: List<Habit> get() = dueHabits.filter { it.inTally }
 
     /**
      * What the widget lists, top to bottom: the due habits without a category,

@@ -152,7 +152,7 @@ private fun Header(cache: Cache) {
 /** A category's name and count. Folding is done in the app, which this opens. */
 @Composable
 private fun CategoryRow(category: Category, habits: List<Habit>) {
-    val counted = habits.filterNot { it.excused }
+    val counted = habits.filter { it.inTally }
     Row(
         modifier = GlanceModifier
             .fillMaxWidth()
@@ -167,7 +167,9 @@ private fun CategoryRow(category: Category, habits: List<Habit>) {
             modifier = GlanceModifier.defaultWeight(),
         )
         Text(
-            text = "${counted.count { it.done }}/${counted.size}" + if (category.collapsed) "  ▸" else "",
+            // Nothing to count when all of them are skipped or long targets.
+            text = (if (counted.isEmpty()) "" else "${counted.count { it.done }}/${counted.size}") +
+                if (category.collapsed) "  ▸" else "",
             maxLines = 1,
             style = TextStyle(color = muted, fontSize = 11.sp, fontFamily = FontFamily.Monospace),
         )

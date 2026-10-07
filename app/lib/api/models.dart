@@ -401,6 +401,10 @@ class TodayHabit {
     ],
   );
 
+  /// Whether it counts in the day's "done" tally. A target over more than a
+  /// week does not: it would hold every day back until its period was met.
+  bool get inTally => !schedule.isTarget || (schedule == Schedule.weekly && every == 1);
+
   /// `3/8 pages`, `2/3 this month`, or nothing for a plain daily checkbox.
   String get progress {
     final amount = unit.isEmpty ? '' : ' $unit';

@@ -336,6 +336,20 @@ class ModelTest {
     }
 
     @Test
+    fun `targets over more than a week are listed but not counted in the day`() {
+        val start = cache(
+            habit("daily"),
+            habit("weekly", schedule = Schedule.WEEKLY, goal = 2),
+            habit("fortnight", schedule = Schedule.WEEKLY, goal = 2, every = 2),
+            habit("monthly", schedule = Schedule.MONTHLY, goal = 2),
+            habit("yearly", schedule = Schedule.YEARLY, goal = 2),
+            habit("skipped").copy(skipped = true),
+        )
+        assertEquals(6, start.dueHabits.size)
+        assertEquals(listOf("daily", "weekly"), start.countedHabits.map { it.id })
+    }
+
+    @Test
     fun `an interval habit rests after it is done and comes due again`() {
         val start = cache(habit("plants", schedule = Schedule.INTERVAL, every = 3, streak = 2))
         assertEquals(listOf("plants"), start.dueHabits.map { it.id })
