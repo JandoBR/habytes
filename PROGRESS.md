@@ -25,6 +25,8 @@ A POCO X3 GT (Android 13, MIUI, Firefox as the browser).
 | Quick add: actually adding a habit | Not tried |
 | Reminders: the permission prompt, the notification, its button | Not tried |
 | Widget: rolling over at midnight and at the start of a week | Not tried |
+| Targets per month, year and custom span; habits due every few days: the editor, Today, History, the widget | Not tried |
+| Reminders for a target or a resting habit | Not tried |
 | A revoked device token (the widget should say "Sign in" and keep its queue) | Not tried |
 
 MIUI restricts background work for new apps. If reminders or background sync
@@ -37,6 +39,11 @@ width, against a local server with sample data, plus one real sign-in on the
 deployed one. Not looked at: wide desktop windows, and whether a keyboard
 link-hint extension now reaches every control.
 
+The schedules added on 2026-10-07 (targets per month, year or several weeks,
+months or years; habits due every few days) have not been looked at on any
+screen. They are covered by the tests, by a widget test of the editor, and by
+a run of the server over a copy of the live database.
+
 ## Where things are
 
 ### Server (`server/src/`)
@@ -45,7 +52,7 @@ link-hint extension now reaches every control.
 | --- | --- |
 | `auth.rs`, `oidc.rs`, `extract.rs` | Login flows, the relying party, and how a request is authenticated. |
 | `api/habits.rs`, `api/categories.rs`, `api/entries.rs`, `api/tokens.rs`, `api/me.rs` | The JSON API. |
-| `schedule.rs`, `streak.rs` | Due days, week boundaries, completion; streak counting. |
+| `schedule.rs`, `streak.rs` | Due days, the periods targets are measured over, completion; streak counting, for periods and for intervals. |
 | `hooks.rs`, `ratelimit.rs` | Webhooks and the in-memory limits. |
 | `web.rs` | Serves the embedded web app and sends page visits without a session to the login. |
 
@@ -64,7 +71,7 @@ link-hint extension now reaches every control.
 
 | File | What it is |
 | --- | --- |
-| `Model.kt` | Cache, habits, categories and outbox operations: optimistic apply, day and week change, streaks, due-day filtering. Pure Kotlin. |
+| `Model.kt` | Cache, habits, categories and outbox operations: optimistic apply, day and period change, resting intervals, streaks, due-day filtering. Pure Kotlin. |
 | `HabitSync.kt` | Taps, NFC scans, and the flush + refresh exchange with the server. Pure Kotlin behind `StateStore` and `Api`. |
 | `Json.kt`, `Store.kt`, `HttpApi.kt` | Serialisation, the SharedPreferences store, the `HttpURLConnection` client. |
 | `Widgets.kt` | Process-wide glue: the shared `HabitSync`, redraws, WorkManager jobs. |
@@ -118,9 +125,31 @@ form of this project's workflows and scripts. In short:
   WorkManager job that runs at once when online.
 * **Flushing drops any 4xx but 401, 408 and 429.** Anything else that can
   never succeed would block the queue forever.
-* **An unsent "set" from an earlier day is not counted towards a weekly
+* **An unsent "set" from an earlier day is not counted towards a target's
   total** when the cache is rebuilt: the amount depends on a value only the
   server has. Unsent increments are counted. The next refresh corrects it.
+* **Months and years follow the calendar; blocks of weeks start when the
+  schedule is set.** "Every 3 months" is a calendar quarter, which is what
+  the editor says. Weeks have no such landmark, so a block of several counts
+  from the week the schedule was set in (`habits.anchor`); counted from a
+  fixed week, a new "every 2 weeks" habit could reset after one.
+* **"Every few days" counts from the last time it was done**, not in fixed
+  windows: watering plants two days late should move the next time too.
+* **A met target leaves the day's list** until its next period, except on a
+  day it was logged on; it can still be logged from the folded section. A
+  yearly target would otherwise sit on Today all year.
+* **Targets over more than a week are left out of the "done" count.** They
+  count as not done until their period is met, which would keep every day
+  from reading as complete for months. Weekly ones still count.
+* **A skipped day excuses a target's whole period**, a year included. Kept
+  as it was for weeks; the switch only says it does not break the streak.
+* **The widget is sent each target's period and works out the next ones
+  itself**, so it rolls over at the end of a month while offline without
+  knowing anything about anchors or the first day of the week.
+* **Migration `0004` rebuilds `habits`** because SQLite cannot change a
+  CHECK. With foreign keys on, dropping the table deletes its entries, so the
+  migration sets them aside and puts them back; the Dev-kit has the pattern
+  (`docs/sqlite-migrations.md`).
 * **Folding is stored on the server**, so the web app, the phone and the
   widget agree, and the widget needs no fold action of its own.
 * **Signing in again replaces the old credential.** Reinstalling the app used

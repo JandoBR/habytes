@@ -373,7 +373,7 @@ Status object, returned by every write:
 Semantics:
 
 * **Increment** is the operation for taps on counters. `delta` is a non-zero integer in `-1000..=1000`. In one transaction the server inserts `op_id` into `applied_ops` and adds `delta` to the value, clamping the result. If `op_id` was already applied it changes nothing and returns the current status with 200. Retrying is therefore always safe, and increments from several devices add up.
-* **Set** is the operation for boolean check/uncheck, corrections, skipping a day and notes. It changes one day, never the week's total. It is idempotent; the last request to arrive wins.
+* **Set** is the operation for boolean check/uncheck, corrections, skipping a day and notes. It changes one day, never a period's total. It is idempotent; the last request to arrive wins.
 * `date` must be a real calendar date no later than tomorrow (UTC).
 
 ### Tokens
@@ -413,7 +413,7 @@ One Flutter codebase. On the web it is served by `habitd` from the same origin a
 | Settings | Time zone and first day of the week. API tokens (create, revoke). Signed-in devices and sessions (revoke). Sign out. |
 | Server, Sign in, Device | Android only: enter the server URL (checked with `GET /meta`), sign in, and see the account and server, the widget hint, "Refresh widget" and "Sign out". |
 
-The statistics on History are worked out in the app from `GET /entries`. A skipped day and a day off are left out of a completion rate; the running day or week is not held against it.
+The statistics on History are worked out in the app from `GET /entries`. A skipped day and a day off are left out of a completion rate; the running day or period is not held against it, and for an `interval` habit the days it was resting are left out too. A target is rated in whole periods, and one that began before the entries the app has is only counted if it was met.
 
 ### Look
 
@@ -567,11 +567,11 @@ Two Forgejo workflows run on pushes to `main`, each only when something it depen
 
 ## 12. Testing
 
-* Server: integration tests drive the Axum router against an in-memory SQLite database. They cover completion for every schedule and kind combination, week boundaries for each `week_start`, increment idempotency, clamping, streaks, skipped days and notes, categories, ownership checks (404 for other users' IDs), token expiry and revocation, replacing credentials on re-login, the `Origin` check, and webhook behaviour per kind.
+* Server: integration tests drive the Axum router against an in-memory SQLite database. They cover completion for every schedule and kind combination, week boundaries for each `week_start`, targets over months, years and blocks of them, intervals, increment idempotency, clamping, streaks, skipped days and notes, categories, ownership checks (404 for other users' IDs), token expiry and revocation, replacing credentials on re-login, the `Origin` check, and webhook behaviour per kind.
 * OIDC: tested against a mock issuer serving discovery, JWKS and the token endpoint.
 * Streaks: unit tests of the counting rules.
-* App: unit tests of the statistics.
-* Widget: Kotlin unit tests for the cache and outbox logic (optimistic apply, flush outcomes, day and week change, streaks, due-day filtering, categories, re-apply after refresh), NFC scans (boolean set, counter debounce, a tag just written, unknown habit) and reminder timing.
+* App: unit tests of the statistics and of period boundaries, and a widget test that taps through the habit editor's schedule options at phone width.
+* Widget: Kotlin unit tests for the cache and outbox logic (optimistic apply, flush outcomes, day and period change, resting intervals, streaks, due-day filtering, categories, re-apply after refresh), NFC scans (boolean set, counter debounce, a tag just written, unknown habit) and reminder timing.
 
 ## 13. Later
 
