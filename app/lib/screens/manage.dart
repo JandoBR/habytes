@@ -16,6 +16,7 @@ String describeSchedule(Habit habit) {
     Schedule.daily => counter ? '$amount every day' : 'Every day',
     Schedule.weekdays =>
       '${counter ? '$amount on ' : ''}${habit.weekdays!.map((d) => weekdayShort[d - 1]).join(', ')}',
+    Schedule.interval when habit.every == 1 => counter ? '$amount every day' : 'Every day',
     Schedule.interval =>
       counter ? '$amount every ${habit.every} days' : 'Every ${habit.every} days',
     Schedule.weekly || Schedule.monthly || Schedule.yearly =>

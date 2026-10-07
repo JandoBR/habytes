@@ -356,7 +356,8 @@ class TodayHabit {
     unit: unit,
     color: color,
     categoryId: categoryId,
-    due: due,
+    // As the server has it: a met target is only due on a day it was logged on.
+    due: schedule.isTarget ? !status.done || status.value > 0 : due,
     value: status.value,
     periodValue: status.periodValue,
     done: status.done,
