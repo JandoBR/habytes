@@ -19,7 +19,10 @@ internal fun habit(
     value: Int = 0,
     periodValue: Int = value,
     streak: Int = 0,
-) = Habit(id, "Habit $id", kind, schedule, weekdays, goal, value, periodValue, streak)
+    every: Int = 1,
+    // A target's running period: the week of MONDAY unless the test says otherwise.
+    period: Period? = if (schedule.isTarget) Period(MONDAY, MONDAY.plusDays(6)) else null,
+) = Habit(id, "Habit $id", kind, schedule, weekdays, goal, value, periodValue, streak, every = every, period = period)
 
 internal fun cache(vararg habits: Habit, date: LocalDate = MONDAY, weekStart: LocalDate = MONDAY) =
     Cache(date, weekStart, fetchedAt = 0, habits = habits.toList())
@@ -188,6 +191,64 @@ class ModelTest {
     }
 
     @Test
+    fun `a month keeps its total until it ends`() {
+        val october = Period(LocalDate.parse("2026-10-01"), LocalDate.parse("2026-10-31"))
+        val start = cache(
+            habit("met", schedule = Schedule.MONTHLY, goal = 2, value = 1, periodValue = 2, streak = 3, period = october),
+            habit("short", schedule = Schedule.MONTHLY, goal = 2, periodValue = 1, streak = 3, period = october),
+        )
+        val lastDay = start.rolledTo(october.end)
+        assertEquals(0, lastDay.habit("met")!!.value)
+        assertEquals(2, lastDay.habit("met")!!.periodValue)
+        assertEquals(3, lastDay.habit("short")!!.streak)
+
+        val november = start.rolledTo(LocalDate.parse("2026-11-01"))
+        assertEquals(0, november.habit("met")!!.periodValue)
+        assertEquals(3, november.habit("met")!!.streak)
+        assertEquals(0, november.habit("short")!!.streak)
+        assertEquals(
+            Period(LocalDate.parse("2026-11-01"), LocalDate.parse("2026-11-30")),
+            november.habit("met")!!.period,
+        )
+        // A whole month with nothing logged ends even a met one.
+        val december = start.rolledTo(LocalDate.parse("2026-12-15"))
+        assertEquals(0, december.habit("met")!!.streak)
+        assertEquals(LocalDate.parse("2026-12-31"), december.habit("met")!!.period!!.end)
+    }
+
+    @Test
+    fun `longer periods move on in whole blocks`() {
+        val quarter = Period(LocalDate.parse("2026-10-01"), LocalDate.parse("2026-12-31"))
+        val year = Period(LocalDate.parse("2026-01-01"), LocalDate.parse("2026-12-31"))
+        val fortnight = Period(MONDAY.minusDays(7), MONDAY.plusDays(6))
+        val start = cache(
+            habit("quarter", schedule = Schedule.MONTHLY, goal = 1, periodValue = 1, every = 3, period = quarter),
+            habit("year", Kind.COUNTER, Schedule.YEARLY, goal = 5, periodValue = 4, period = year),
+            habit("fortnight", schedule = Schedule.WEEKLY, goal = 3, periodValue = 2, every = 2, period = fortnight),
+        )
+        val december = start.rolledTo(LocalDate.parse("2026-12-31"))
+        assertEquals(1, december.habit("quarter")!!.periodValue)
+        assertEquals(4, december.habit("year")!!.periodValue)
+        assertEquals(0, december.habit("fortnight")!!.periodValue)
+
+        val january = start.rolledTo(LocalDate.parse("2027-01-01"))
+        assertEquals(0, january.habit("quarter")!!.periodValue)
+        assertEquals(Period(LocalDate.parse("2027-01-01"), LocalDate.parse("2027-03-31")), january.habit("quarter")!!.period)
+        assertEquals(Period(LocalDate.parse("2027-01-01"), LocalDate.parse("2027-12-31")), january.habit("year")!!.period)
+
+        // The second week of the fortnight still counts; the week after does not.
+        assertEquals(2, start.rolledTo(MONDAY.plusDays(6)).habit("fortnight")!!.periodValue)
+        val next = start.rolledTo(MONDAY.plusDays(7)).habit("fortnight")!!
+        assertEquals(0, next.periodValue)
+        assertEquals(Period(MONDAY.plusDays(7), MONDAY.plusDays(20)), next.period)
+
+        // An unsent tap from earlier in the year still counts towards it.
+        val tapped = start.applying(Op.Increment("1", "year", LocalDate.parse("2026-02-01"), 1)).habit("year")!!
+        assertEquals(0, tapped.value)
+        assertEquals(5, tapped.periodValue)
+    }
+
+    @Test
     fun `a skipped day does not end the streak, and is not skipped tomorrow`() {
         val start = cache(habit("a", streak = 5).copy(skipped = true))
         assertTrue(start.habit("a")!!.excused)
@@ -230,7 +291,7 @@ class ModelTest {
         assertFalse(habit("a", value = 1).needsReminder(MONDAY))
         assertFalse(habit("a").copy(skipped = true).needsReminder(MONDAY))
         assertFalse(habit("a", schedule = Schedule.WEEKDAYS, weekdays = listOf(2)).needsReminder(MONDAY))
-        // A weekly habit is reminded until the week's goal is met.
+        // A target is reminded until its period's goal is met.
         val weekly = habit("a", schedule = Schedule.WEEKLY, goal = 2, value = 1, periodValue = 1)
         assertTrue(weekly.needsReminder(MONDAY))
         assertFalse(weekly.copy(periodValue = 2).needsReminder(MONDAY))
@@ -261,12 +322,41 @@ class ModelTest {
             habit("daily"),
             habit("mon-wed", schedule = Schedule.WEEKDAYS, weekdays = listOf(1, 3)),
             habit("sunday", schedule = Schedule.WEEKDAYS, weekdays = listOf(7)),
-            habit("weekly", schedule = Schedule.WEEKLY, goal = 1, periodValue = 1),
+            habit("weekly", schedule = Schedule.WEEKLY, goal = 1, value = 1, periodValue = 1),
+            habit("open", schedule = Schedule.WEEKLY, goal = 2, periodValue = 1),
         )
-        // A completed weekly habit stays in the list.
-        assertEquals(listOf("daily", "mon-wed", "weekly"), start.dueHabits.map { it.id })
-        assertEquals(listOf("daily", "weekly"), start.rolledTo(MONDAY.plusDays(1)).dueHabits.map { it.id })
-        assertEquals(listOf("daily", "sunday", "weekly"), start.rolledTo(MONDAY.plusDays(6)).dueHabits.map { it.id })
+        // A target met today stays for the day, then is out of the list until its next period.
+        assertEquals(listOf("daily", "mon-wed", "weekly", "open"), start.dueHabits.map { it.id })
+        assertEquals(listOf("daily", "open"), start.rolledTo(MONDAY.plusDays(1)).dueHabits.map { it.id })
+        assertEquals(listOf("daily", "sunday", "open"), start.rolledTo(MONDAY.plusDays(6)).dueHabits.map { it.id })
+        assertEquals(
+            listOf("daily", "mon-wed", "weekly", "open"),
+            start.rolledTo(MONDAY.plusDays(7)).dueHabits.map { it.id },
+        )
+    }
+
+    @Test
+    fun `an interval habit rests after it is done and comes due again`() {
+        val start = cache(habit("plants", schedule = Schedule.INTERVAL, every = 3, streak = 2))
+        assertEquals(listOf("plants"), start.dueHabits.map { it.id })
+        // Left undone on a day it was due, its streak ends and it stays due.
+        val missed = start.rolledTo(MONDAY.plusDays(1)).habit("plants")!!
+        assertEquals(0, missed.streak)
+        assertTrue(missed.isDueOn(MONDAY.plusDays(1)))
+
+        val done = start.applying(Op.Set("1", "plants", MONDAY, 1))
+        assertEquals(3, done.habit("plants")!!.streak)
+        assertEquals(listOf("plants"), done.dueHabits.map { it.id })
+        // It rests for two days, keeping its streak, and is due on the third.
+        val tuesday = done.rolledTo(MONDAY.plusDays(1))
+        assertTrue(tuesday.dueHabits.isEmpty())
+        assertFalse(tuesday.habit("plants")!!.needsReminder(MONDAY.plusDays(1)))
+        assertEquals(3, tuesday.habit("plants")!!.streak)
+        val thursday = tuesday.rolledTo(MONDAY.plusDays(3))
+        assertEquals(listOf("plants"), thursday.dueHabits.map { it.id })
+        assertEquals(3, thursday.habit("plants")!!.streak)
+        assertEquals(0, thursday.rolledTo(MONDAY.plusDays(4)).habit("plants")!!.streak)
+        assertEquals(thursday, cacheFromJson(thursday.toJson()))
     }
 
     @Test
@@ -279,12 +369,19 @@ class ModelTest {
             "12/20 this week",
             habit("a", Kind.COUNTER, Schedule.WEEKLY, goal = 20, value = 1, periodValue = 12).progress,
         )
+        assertEquals("1/2 this month", habit("a", schedule = Schedule.MONTHLY, goal = 2, periodValue = 1).progress)
+        assertEquals("1/4 this year", habit("a", schedule = Schedule.YEARLY, goal = 4, periodValue = 1).progress)
+        assertEquals("0/1 this quarter", habit("a", schedule = Schedule.MONTHLY, every = 3).progress)
+        assertEquals("0/1 this period", habit("a", schedule = Schedule.WEEKLY, every = 2).progress)
+        assertEquals("3 months", habit("a", schedule = Schedule.MONTHLY, streak = 3).streakText)
+        assertEquals("2 periods", habit("a", schedule = Schedule.YEARLY, every = 2, streak = 2).streakText)
     }
 
     @Test
     fun `state survives a round trip through JSON`() {
         val start = cache(
             habit("a", Kind.COUNTER, Schedule.WEEKDAYS, weekdays = listOf(1, 5), goal = 8, value = 3, streak = 4),
+            habit("c", schedule = Schedule.YEARLY, goal = 3, every = 2),
             habit("b", schedule = Schedule.WEEKLY, goal = 3, value = 1, periodValue = 2)
                 .copy(
                     unit = "km",
@@ -309,7 +406,10 @@ class ModelTest {
                "unit":"glasses","skipped":true,"category_id":"c1",
                "reminders":[{"time":"21:30","days":null},{"time":"07:00","days":[1,5]}]},
               {"id":"b","name":"Gym","kind":"boolean","schedule":"weekly","weekdays":null,
-               "goal":3,"due":true,"value":1,"period_value":2,"done":false}]}
+               "goal":3,"due":true,"value":1,"period_value":2,"done":false},
+              {"id":"c","name":"Dentist","kind":"boolean","schedule":"monthly","every":3,"weekdays":null,
+               "goal":1,"due":true,"value":0,"period_value":0,"done":false,
+               "period_start":"2026-10-01","period_end":"2026-12-31"}]}
         """
         val cache = cacheFromJson(body, fetchedAt = 42)
         assertEquals(MONDAY, cache.date)
@@ -327,7 +427,12 @@ class ModelTest {
         )
         assertEquals("3/8 glasses", cache.habits[0].progress)
         assertEquals(listOf(Category("c1", "Health", true)), cache.categories)
-        // A server from before streaks sends none.
-        assertEquals(Habit("b", "Gym", Kind.BOOLEAN, Schedule.WEEKLY, null, 3, 1, 2, 0), cache.habits[1])
+        // A server from before streaks and periods sends neither: the period is the week.
+        assertEquals(
+            Habit("b", "Gym", Kind.BOOLEAN, Schedule.WEEKLY, null, 3, 1, 2, 0, period = Period(MONDAY, MONDAY.plusDays(6))),
+            cache.habits[1],
+        )
+        assertEquals(3, cache.habits[2].every)
+        assertEquals(Period(LocalDate.parse("2026-10-01"), LocalDate.parse("2026-12-31")), cache.habits[2].period)
     }
 }

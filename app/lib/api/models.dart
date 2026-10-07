@@ -21,7 +21,67 @@ DateTime weekStartDate(DateTime date, int weekStart) =>
 
 enum HabitKind { boolean, counter }
 
-enum Schedule { daily, weekdays, weekly }
+enum Schedule {
+  daily,
+  weekdays,
+  weekly,
+  monthly,
+  yearly,
+
+  /// Due again some days after it was last done.
+  interval;
+
+  /// Whether the goal is for a whole period (a week, a month, a year, or
+  /// several of them) rather than for each day.
+  bool get isTarget => this == weekly || this == monthly || this == yearly;
+
+  /// `week`, `month`, `year`: what a target's period is made of.
+  String get unit => switch (this) {
+    weekly => 'week',
+    monthly => 'month',
+    yearly => 'year',
+    daily || weekdays || interval => 'day',
+  };
+}
+
+/// `week`, `quarter`, `period`: what one period of a schedule is called, where
+/// [every] weeks, months or years count as one. An interval is counted in times.
+String periodName(Schedule schedule, [int every = 1]) => switch ((schedule, every)) {
+  (Schedule.interval, _) => 'time',
+  (_, 1) => schedule.unit,
+  (Schedule.monthly, 3) => 'quarter',
+  _ => 'period',
+};
+
+/// `a week`, `every 3 months`: how often a target comes round.
+String periodRate(Schedule schedule, [int every = 1]) =>
+    every == 1 ? 'a ${schedule.unit}' : 'every $every ${schedule.unit}s';
+
+/// The first and last day of the period containing [date]. Several weeks are
+/// counted in blocks from a fixed week, several months from January, so that
+/// three months are a calendar quarter.
+(DateTime, DateTime) periodBounds(Schedule schedule, int every, DateTime date, int weekStart) {
+  switch (schedule) {
+    case Schedule.daily || Schedule.weekdays || Schedule.interval:
+      return (date, date);
+    case Schedule.weekly:
+      // 1970-01-05 is a Monday; any fixed week would do.
+      final origin = weekStartDate(DateTime.utc(1970, 1, 5), weekStart);
+      final week = weekStartDate(date, weekStart);
+      final weeks = week.difference(origin).inDays ~/ 7;
+      final start = week.subtract(Duration(days: (weeks % every) * 7));
+      return (start, start.add(Duration(days: every * 7 - 1)));
+    case Schedule.monthly || Schedule.yearly:
+      final months = schedule == Schedule.yearly ? every * 12 : every;
+      final month = date.year * 12 + date.month - 1;
+      final first = month - month % months;
+      // Day 0 of a month is the last day of the one before.
+      return (
+        DateTime.utc(first ~/ 12, first % 12 + 1),
+        DateTime.utc(first ~/ 12, first % 12 + 1 + months, 0),
+      );
+  }
+}
 
 /// When to remind about a habit: a local time of day, on every day or only on
 /// some weekdays.
@@ -67,10 +127,8 @@ class Reminder {
 const habitColors = ['ink', 'red', 'green', 'violet', 'orange', 'teal'];
 
 /// `12 days`, `1 week`: a streak's length in the habit's own period.
-String streakLength(int streak, Schedule schedule) {
-  final unit = schedule == Schedule.weekly ? 'week' : 'day';
-  return '$streak $unit${streak == 1 ? '' : 's'}';
-}
+String streakLength(int streak, Schedule schedule, [int every = 1]) =>
+    '$streak ${periodName(schedule, every)}${streak == 1 ? '' : 's'}';
 
 class User {
   const User({
@@ -100,6 +158,7 @@ class Habit {
     required this.description,
     required this.kind,
     required this.schedule,
+    this.every = 1,
     required this.weekdays,
     required this.goal,
     required this.position,
@@ -118,6 +177,7 @@ class Habit {
     description: json['description'] as String,
     kind: HabitKind.values.byName(json['kind'] as String),
     schedule: Schedule.values.byName(json['schedule'] as String),
+    every: json['every'] as int? ?? 1,
     weekdays: (json['weekdays'] as List?)?.cast<int>(),
     goal: json['goal'] as int,
     position: json['position'] as int,
@@ -137,6 +197,10 @@ class Habit {
   final String description;
   final HabitKind kind;
   final Schedule schedule;
+
+  /// How many weeks, months or years a target's period spans, or the days of
+  /// an interval; 1 otherwise.
+  final int every;
 
   /// Day numbers, 1 = Monday ... 7 = Sunday. Only for [Schedule.weekdays].
   final List<int>? weekdays;
@@ -196,7 +260,7 @@ class EntryStatus {
   final bool skipped;
   final String note;
 
-  /// Periods done in a row: due days, or weeks for a weekly habit.
+  /// Periods done in a row: due days, or a target's weeks, months or years.
   final int streak;
   final int bestStreak;
 }
@@ -208,6 +272,7 @@ class TodayHabit {
     required this.name,
     required this.kind,
     required this.schedule,
+    this.every = 1,
     required this.weekdays,
     required this.goal,
     required this.unit,
@@ -230,6 +295,7 @@ class TodayHabit {
     name: json['name'] as String,
     kind: HabitKind.values.byName(json['kind'] as String),
     schedule: Schedule.values.byName(json['schedule'] as String),
+    every: json['every'] as int? ?? 1,
     weekdays: (json['weekdays'] as List?)?.cast<int>(),
     goal: json['goal'] as int,
     unit: json['unit'] as String? ?? '',
@@ -251,6 +317,7 @@ class TodayHabit {
   final String name;
   final HabitKind kind;
   final Schedule schedule;
+  final int every;
   final List<int>? weekdays;
   final int goal;
   final String unit;
@@ -261,7 +328,7 @@ class TodayHabit {
   /// The day's own value.
   final int value;
 
-  /// What completion is measured on: [value], or the week's sum for weekly habits.
+  /// What completion is measured on: [value], or the period's sum for targets.
   final int periodValue;
   final bool done;
 
@@ -269,7 +336,7 @@ class TodayHabit {
   final bool skipped;
   final String note;
 
-  /// Periods done in a row: due days, or weeks for a weekly habit.
+  /// Periods done in a row: due days, or a target's weeks, months or years.
   final int streak;
   final int bestStreak;
 
@@ -283,6 +350,7 @@ class TodayHabit {
     name: name,
     kind: kind,
     schedule: schedule,
+    every: every,
     weekdays: weekdays,
     goal: goal,
     unit: unit,
@@ -304,10 +372,12 @@ class TodayHabit {
     ],
   );
 
-  /// `3/8 pages`, `2/3 this week`, or nothing for a plain daily checkbox.
+  /// `3/8 pages`, `2/3 this month`, or nothing for a plain daily checkbox.
   String get progress {
     final amount = unit.isEmpty ? '' : ' $unit';
-    if (schedule == Schedule.weekly) return '$periodValue/$goal$amount this week';
+    if (schedule.isTarget) {
+      return '$periodValue/$goal$amount this ${periodName(schedule, every)}';
+    }
     if (kind == HabitKind.counter) return '$value/$goal$amount';
     return '';
   }

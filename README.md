@@ -17,8 +17,10 @@ no passwords to manage.
 ## What it does
 
 * Yes/no habits and counters, with a unit (`8 glasses`, `120 pages`).
-* Schedules: every day, picked weekdays, or a weekly target.
-* Streaks, in days or in weeks. A day can be skipped (ill, travelling) without
+* Schedules: every day, picked weekdays, every few days counted from the last
+  time it was done, or a target: so many times a week,
+  a month, a year, or every few of them (every 2 weeks, every 3 months).
+* Streaks, in days or in a target's own periods. A day can be skipped (ill, travelling) without
   breaking one, and can carry a note.
 * Categories that fold away, a colour per habit, and each habit's week at a
   glance.

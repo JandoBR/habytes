@@ -18,11 +18,11 @@ use crate::{
     error::{ApiError, ApiResult},
     extract::{ApiJson, AuthUser},
     schedule::{
-        is_due, mask_to_weekdays, max_value, parse_date, parse_writable_date, today_in,
+        Period, is_due, mask_to_weekdays, max_value, parse_date, parse_writable_date, today_in,
         week_start_date,
     },
     state::AppState,
-    streak::{Rules, streaks},
+    streak::{Rules, interval_streaks, streaks},
     util::now,
 };
 
@@ -33,17 +33,7 @@ const MAX_RANGE_DAYS: i64 = 366;
 const MAX_NOTE_CHARS: usize = 500;
 
 fn rules(habit: &Habit, week_start: i64) -> Rules {
-    Rules {
-        weekly: habit.schedule == "weekly",
-        weekdays: habit.weekdays,
-        goal: habit.goal,
-        week_start,
-    }
-}
-
-/// The last day of the week containing `date`.
-fn week_end(date: NaiveDate, week_start: i64) -> NaiveDate {
-    week_start_date(date, week_start) + Days::new(6)
+    Rules { period: habit.period(), weekdays: habit.weekdays, goal: habit.goal, week_start }
 }
 
 /// One habit's history by day.
@@ -68,26 +58,57 @@ impl History {
     /// The status fields shared by writes and `/today`.
     fn status(&self, habit: &Habit, week_start: i64, date: NaiveDate) -> Map<String, Value> {
         let value = self.values.get(&date).copied().unwrap_or(0);
-        let start = week_start_date(date, week_start);
-        let week = start..=start + Days::new(6);
-        let period_value = if habit.schedule == "weekly" {
-            self.values.range(week.clone()).map(|(_, value)| value).sum()
-        } else {
+        let period = habit.period();
+        let start = period.start(date, week_start);
+        let end = period.end(date, week_start);
+        let period_value = if period == Period::Day {
             value
+        } else {
+            self.values.range(start..=end).map(|(_, value)| value).sum()
         };
-        // A weekly habit is measured on its whole week, so its streak is too.
-        let as_of = if habit.schedule == "weekly" { *week.end() } else { date };
-        let streaks = streaks(&rules(habit, week_start), &self.values, &self.skipped, as_of);
+        let streaks = if habit.schedule == "interval" {
+            interval_streaks(habit.every, habit.goal, &self.values, &self.skipped, date)
+        } else {
+            // A target is measured on its whole period, so its streak is too.
+            streaks(&rules(habit, week_start), &self.values, &self.skipped, end)
+        };
 
         let mut fields = Map::new();
         fields.insert("value".into(), json!(value));
         fields.insert("period_value".into(), json!(period_value));
+        fields.insert("period_start".into(), json!(start.to_string()));
+        fields.insert("period_end".into(), json!(end.to_string()));
         fields.insert("done".into(), json!(period_value >= habit.goal));
         fields.insert("skipped".into(), json!(self.skipped.contains(&date)));
         fields.insert("note".into(), json!(self.notes.get(&date).map_or("", String::as_str)));
         fields.insert("streak".into(), json!(streaks.current));
         fields.insert("best_streak".into(), json!(streaks.best));
         fields
+    }
+
+    /// The day an `interval` habit comes due again: so many days after it was
+    /// last done before `date`. None if it never was.
+    fn due_from(&self, habit: &Habit, date: NaiveDate) -> Option<NaiveDate> {
+        if habit.schedule != "interval" {
+            return None;
+        }
+        let (&last, _) =
+            self.values.range(..date).rev().find(|&(_, &value)| value >= habit.goal)?;
+        Some(last + Days::new(habit.every as u64))
+    }
+
+    /// Whether the habit belongs in `date`'s list: on one of its weekdays, once
+    /// an interval has run out, and for a target until it is met. A target met
+    /// on `date` itself stays for that day.
+    fn due(&self, habit: &Habit, week_start: i64, date: NaiveDate) -> bool {
+        let period = habit.period();
+        if period == Period::Day {
+            return is_due(habit.weekdays, date)
+                && self.due_from(habit, date).is_none_or(|from| date >= from);
+        }
+        let days = period.start(date, week_start)..=period.end(date, week_start);
+        let total: i64 = self.values.range(days).map(|(_, value)| value).sum();
+        total < habit.goal || self.values.get(&date).is_some_and(|&value| value > 0)
     }
 
     /// Each day of the week containing `date`: its value and whether it was skipped.
@@ -107,12 +128,12 @@ pub async fn status(
     week_start: i64,
     date: NaiveDate,
 ) -> sqlx::Result<Value> {
-    // The habit's whole history up to the end of the day's week: streaks need all of it.
+    // The habit's whole history up to the end of the day's period: streaks need all of it.
     let rows = sqlx::query(
         "SELECT date, value, skipped, note FROM entries WHERE habit_id = ? AND date <= ?",
     )
     .bind(habit.id)
-    .bind(week_end(date, week_start).to_string())
+    .bind(habit.period().end(date, week_start).to_string())
     .fetch_all(&mut *conn)
     .await?;
     let mut history = History::default();
@@ -301,14 +322,19 @@ pub async fn today(
     .fetch_all(&state.db)
     .await?;
 
-    // Every entry up to the end of the week, in one query: streaks need the whole history.
+    // Every entry up to the end of the longest running period, in one query:
+    // streaks need the whole history.
+    let last = habits
+        .iter()
+        .map(|habit| habit.period().end(date, auth.user.week_start))
+        .fold(week_start + Days::new(6), NaiveDate::max);
     let rows = sqlx::query(
         "SELECT e.habit_id, e.date, e.value, e.skipped, e.note FROM entries e
          JOIN habits h ON h.id = e.habit_id
          WHERE h.user_id = ? AND h.archived = 0 AND e.date <= ?",
     )
     .bind(auth.user.id)
-    .bind((week_start + Days::new(6)).to_string())
+    .bind(last.to_string())
     .fetch_all(&state.db)
     .await?;
     let mut histories: HashMap<Uuid, History> = HashMap::new();
@@ -334,13 +360,16 @@ pub async fn today(
             row.insert("name".into(), json!(habit.name));
             row.insert("kind".into(), json!(habit.kind));
             row.insert("schedule".into(), json!(habit.schedule));
+            row.insert("every".into(), json!(habit.every));
             row.insert("weekdays".into(), json!(habit.weekdays.map(mask_to_weekdays)));
             row.insert("goal".into(), json!(habit.goal));
             row.insert("unit".into(), json!(habit.unit));
             row.insert("color".into(), json!(habit.color));
             row.insert("category_id".into(), json!(habit.category_id));
             row.insert("reminders".into(), habit.reminders_json());
-            row.insert("due".into(), json!(is_due(habit.weekdays, date)));
+            row.insert("due".into(), json!(history.due(habit, auth.user.week_start, date)));
+            let due_from = history.due_from(habit, date).map(|day| day.to_string());
+            row.insert("due_from".into(), json!(due_from));
             row.insert("week_values".into(), json!(week_values));
             row.insert("week_skipped".into(), json!(week_skipped));
             Value::Object(row)

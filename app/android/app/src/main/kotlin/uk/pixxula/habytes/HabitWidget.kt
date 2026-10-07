@@ -191,7 +191,7 @@ private fun Message(text: String) {
 @Composable
 private fun HabitRow(habit: Habit) {
     val boolean = habit.kind == Kind.BOOLEAN
-    // A weekly habit can be checked today without being done for the week.
+    // A target can be checked today without being done for its period.
     val marked = if (boolean) habit.checkedToday else habit.done
     val stamp = when {
         habit.excused && !marked -> R.drawable.widget_stamp_skipped

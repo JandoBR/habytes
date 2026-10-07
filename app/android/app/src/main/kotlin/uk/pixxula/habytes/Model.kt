@@ -9,7 +9,24 @@ import java.time.temporal.ChronoUnit
 
 enum class Kind { BOOLEAN, COUNTER }
 
-enum class Schedule { DAILY, WEEKDAYS, WEEKLY }
+enum class Schedule {
+    DAILY,
+    WEEKDAYS,
+    WEEKLY,
+    MONTHLY,
+    YEARLY,
+
+    /** Due again some days after it was last done. */
+    INTERVAL;
+
+    /** Whether the goal is for a whole period rather than for each day. */
+    val isTarget: Boolean get() = this == WEEKLY || this == MONTHLY || this == YEARLY
+}
+
+/** The first and last day of the stretch a target's goal is measured over. */
+data class Period(val start: LocalDate, val end: LocalDate) {
+    operator fun contains(day: LocalDate): Boolean = !day.isBefore(start) && !day.isAfter(end)
+}
 
 const val MAX_COUNTER_VALUE = 1_000_000
 
@@ -23,9 +40,9 @@ data class Habit(
     val goal: Int,
     /** The day's own value. */
     val value: Int,
-    /** What completion is measured on: [value], or the week's sum for weekly habits. */
+    /** What completion is measured on: [value], or the period's sum for targets. */
     val periodValue: Int,
-    /** Periods done in a row: due days, or weeks for a weekly habit. */
+    /** Periods done in a row: due days, or a target's weeks, months or years. */
     val streak: Int = 0,
     /** What a counter counts: `pages`, `ml`. May be empty. */
     val unit: String = "",
@@ -34,27 +51,49 @@ data class Habit(
     val categoryId: String? = null,
     /** When to remind about it if it is not done yet. */
     val reminders: List<Reminder> = emptyList(),
+    /** How many weeks, months or years a target's period spans, or the days of an interval; 1 otherwise. */
+    val every: Int = 1,
+    /** The running period of a target. */
+    val period: Period? = null,
+    /** The day an interval habit comes due again after it was last done, before today. */
+    val dueFrom: LocalDate? = null,
 ) {
     val done: Boolean get() = periodValue >= goal
 
     val checkedToday: Boolean get() = value > 0
 
-    fun isDueOn(date: LocalDate): Boolean = weekdays?.contains(date.dayOfWeek.value) ?: true
+    /**
+     * Whether it belongs in [date]'s list: on one of its weekdays, once an
+     * interval has run out, and for a target until it is met. A target met
+     * today stays for the day.
+     */
+    fun isDueOn(date: LocalDate): Boolean = when {
+        schedule.isTarget -> !done || checkedToday
+        dueFrom != null -> !date.isBefore(dueFrom)
+        else -> weekdays?.contains(date.dayOfWeek.value) ?: true
+    }
 
-    /** `12 days`, `3 weeks`; nothing for a streak too short to mention. */
-    val streakText: String
+    /** `week`, `quarter`, `period`: what one period of the schedule is called. */
+    private val periodName: String
         get() = when {
-            streak < 2 -> ""
-            schedule == Schedule.WEEKLY -> "$streak weeks"
-            else -> "$streak days"
+            schedule == Schedule.INTERVAL -> "time"
+            schedule == Schedule.MONTHLY && every == 3 -> "quarter"
+            every != 1 -> "period"
+            schedule == Schedule.WEEKLY -> "week"
+            schedule == Schedule.MONTHLY -> "month"
+            schedule == Schedule.YEARLY -> "year"
+            else -> "day"
         }
 
-    /** `3/8 pages`, `2/3 this week`, or nothing for a plain daily checkbox. */
+    /** `12 days`, `3 weeks`, `4 times`; nothing for a streak too short to mention. */
+    val streakText: String get() = if (streak < 2) "" else "$streak ${periodName}s"
+
+    /** `3/8 pages`, `2/3 this month`, or nothing for a plain daily checkbox. */
     val progress: String
         get() {
             val amount = if (unit.isEmpty()) "" else " $unit"
             return when {
-                schedule == Schedule.WEEKLY -> "$periodValue/$goal$amount this week"
+                schedule.isTarget -> "$periodValue/$goal$amount this $periodName"
                 kind == Kind.COUNTER -> "$value/$goal$amount"
                 else -> ""
             }
@@ -71,8 +110,8 @@ data class Habit(
     /** This habit with the day's value set, and the period's value moved along with it. */
     fun withValue(newValue: Int): Habit {
         val clamped = newValue.coerceIn(0, maxValue)
-        val period = if (schedule == Schedule.WEEKLY) periodValue + (clamped - value) else clamped
-        val changed = copy(value = clamped, periodValue = period.coerceAtLeast(0))
+        val total = if (schedule.isTarget) periodValue + (clamped - value) else clamped
+        val changed = copy(value = clamped, periodValue = total.coerceAtLeast(0))
         // Completing the running period extends the streak; undoing it takes that back.
         val streak = when {
             changed.done && !done -> streak + 1
@@ -82,18 +121,49 @@ data class Habit(
         return changed.copy(streak = streak)
     }
 
-    /** The streak once the periods from [from] up to, but not including, [to] are over. */
-    internal fun streakAfter(from: LocalDate, to: LocalDate, weeksPassed: Long): Int {
-        if (!to.isAfter(from)) return streak
+    /** The period [day] is in, worked out from the running one, and how many periods on that is. */
+    private fun periodOn(day: LocalDate): Pair<Period, Long>? {
+        val (start, end) = period ?: return null
         if (schedule == Schedule.WEEKLY) {
-            return when {
-                weeksPassed == 0L -> streak
-                // The week that just ended counts only if its goal was met.
-                // (or it was excused by a skipped day, as far as this cache knows)
-                weeksPassed == 1L && (done || skipped) -> streak
-                else -> 0
-            }
+            // Weeks, or blocks of them, are all as long as the running one.
+            val length = ChronoUnit.DAYS.between(start, end) + 1
+            val steps = Math.floorDiv(ChronoUnit.DAYS.between(start, day), length)
+            return Period(start.plusDays(steps * length), end.plusDays(steps * length)) to steps
         }
+        // Months and years start on the first of a month.
+        val length = (if (schedule == Schedule.YEARLY) 12L else 1L) * every
+        val months = ChronoUnit.MONTHS.between(start, day.withDayOfMonth(1))
+        val steps = Math.floorDiv(months, length)
+        val moved = start.plusMonths(steps * length)
+        return Period(moved, moved.plusMonths(length).minusDays(1)) to steps
+    }
+
+    /**
+     * This habit on [to], having last been looked at on [from]: a new day
+     * starts its value at 0, a new period starts a target's total at 0, and
+     * a period that ended without the habit done ends its streak.
+     */
+    internal fun rolled(from: LocalDate, to: LocalDate): Habit {
+        if (schedule == Schedule.INTERVAL) {
+            // Done on the day it was last looked at, it rests from then.
+            val rested = if (done && to.isAfter(from)) copy(dueFrom = from.plusDays(every.toLong())) else this
+            return rested.copy(value = 0, skipped = false, periodValue = 0, streak = rested.dailyStreakAfter(from, to))
+        }
+        val day = copy(value = 0, skipped = false)
+        if (!schedule.isTarget) return day.copy(periodValue = 0, streak = dailyStreakAfter(from, to))
+        val (next, steps) = periodOn(to) ?: return day.copy(periodValue = 0, streak = 0)
+        return when {
+            steps == 0L -> day
+            // The period that just ended counts only if its goal was met
+            // (or it was excused by a skipped day, as far as this cache knows).
+            steps == 1L && (done || skipped) -> day.copy(periodValue = 0, period = next)
+            else -> day.copy(periodValue = 0, period = next, streak = 0)
+        }
+    }
+
+    /** The streak of a habit with a goal per day once the days from [from] up to, but not including, [to] are over. */
+    private fun dailyStreakAfter(from: LocalDate, to: LocalDate): Int {
+        if (!to.isAfter(from)) return streak
         if (isDueOn(from) && !done && !skipped) return 0
         // Any due day skipped entirely in between also ends it.
         var day = from.plusDays(1)
@@ -161,30 +231,18 @@ data class Cache(
 
     fun habit(id: String): Habit? = habits.firstOrNull { it.id == id }
 
-    private fun inWeek(day: LocalDate): Boolean =
-        ChronoUnit.DAYS.between(weekStartDate, day) in 0..6
-
     /**
      * The cache as it should look on [today], without asking the server:
-     * a new day starts every value at 0, a new week starts weekly totals at 0,
-     * and a period that ended without the habit done ends its streak.
+     * a new day starts every value at 0, a new period starts a target's total
+     * at 0, and a period that ended without the habit done ends its streak.
      */
     fun rolledTo(today: LocalDate): Cache {
         if (today == date) return this
-        val sameWeek = inWeek(today)
         val weeks = Math.floorDiv(ChronoUnit.DAYS.between(weekStartDate, today), 7L)
         return copy(
             date = today,
             weekStartDate = weekStartDate.plusDays(weeks * 7),
-            habits = habits.map {
-                val keepPeriod = sameWeek && it.schedule == Schedule.WEEKLY
-                it.copy(
-                    value = 0,
-                    skipped = false,
-                    periodValue = if (keepPeriod) it.periodValue else 0,
-                    streak = it.streakAfter(date, today, weeks),
-                )
-            },
+            habits = habits.map { it.rolled(date, today) },
         )
     }
 
@@ -196,10 +254,10 @@ data class Cache(
                 is Op.Increment -> habit.withValue(habit.value + op.delta)
                 is Op.Set -> habit.withValue(op.value)
             }
-            // An unsent tap from an earlier day of this week still counts towards
-            // the week. (An unsent "set" does too, but by an amount only the
+            // An unsent tap from an earlier day of the running period still counts
+            // towards it. (An unsent "set" does too, but by an amount only the
             // server knows; the next refresh brings it.)
-            op is Op.Increment && habit.schedule == Schedule.WEEKLY && inWeek(op.date) ->
+            op is Op.Increment && habit.period?.contains(op.date) == true ->
                 habit.copy(periodValue = (habit.periodValue + op.delta).coerceAtLeast(0))
             else -> habit
         }

@@ -24,14 +24,14 @@ A self-hostable habit tracker whose main interface is a **home-screen widget**.
 * One-tap logging from the home screen that never loses a tap.
 * Logging by tapping the phone on an NFC tag, handled by the app itself.
 * Automation-friendly: every action is available over the API, plus per-habit webhooks for things that are not the phone (Home Assistant, scripts).
-* Flexible schedules: daily, specific weekdays, or a weekly target, for both yes/no and counter habits.
+* Flexible schedules: daily, specific weekdays, every few days counted from when it was last done, or a target over a week, a month, a year or several of them, for both yes/no and counter habits.
 * Streaks that are fair: a day off or a skipped day does not break one.
 * Authentication delegated to an existing OIDC provider. This deployment uses **Pocket ID**; any standard provider works.
 
 ### Non-goals
 
 * Gamification (coins, rewards, shops).
-* Complex recurrence: monthly, every N days, custom intervals.
+* Complex recurrence: the third Tuesday of the month, every other Friday.
 * iOS app and widget.
 * Linux desktop client.
 * A general offline sync engine (section 10 describes what replaces it).
@@ -124,13 +124,20 @@ CREATE TABLE habits (
   name            TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 100),
   description     TEXT NOT NULL DEFAULT '',
   kind            TEXT NOT NULL CHECK (kind IN ('boolean', 'counter')),
-  schedule        TEXT NOT NULL CHECK (schedule IN ('daily', 'weekdays', 'weekly')),
+  schedule        TEXT NOT NULL
+                  CHECK (schedule IN ('daily', 'weekdays', 'weekly', 'monthly', 'yearly',
+                                      'interval')),
+  every           INTEGER NOT NULL DEFAULT 1     -- a target's periods counted as one, or an
+                                                 -- interval's days; 1 otherwise
+                  CHECK (every >= 1
+                         AND (every = 1
+                              OR schedule IN ('weekly', 'monthly', 'yearly', 'interval'))),
   weekdays        INTEGER                        -- bitmask, bit 0 = Monday ... bit 6 = Sunday
                   CHECK ((schedule = 'weekdays') = (weekdays IS NOT NULL)
                          AND (weekdays IS NULL OR weekdays BETWEEN 1 AND 127)),
   goal            INTEGER NOT NULL DEFAULT 1
                   CHECK (goal >= 1 AND (kind = 'counter'
-                         OR (schedule = 'weekly' AND goal <= 7)
+                         OR (schedule IN ('weekly', 'monthly', 'yearly') AND goal <= 366 * every)
                          OR goal = 1)),
   unit            TEXT NOT NULL DEFAULT '',      -- "pages", "ml"; at most 20 characters
   color           TEXT NOT NULL DEFAULT 'ink',   -- ink, red, green, violet, orange, teal
@@ -200,21 +207,26 @@ Schedule and kind are chosen when the habit is created. Completion is never stor
 | --- | --- | --- | --- | --- |
 | `daily` | every day | the day | boolean: always 1. Counter: amount per day | the day's value ≥ goal |
 | `weekdays` | the days in `weekdays` | the day | same as daily | the day's value ≥ goal |
-| `weekly` | every day of the week | the week | boolean: days per week, 1–7. Counter: total per week | the sum of the week's values ≥ goal |
+| `interval` | from `every` days after the last day it was done | the day | same as daily | the day's value ≥ goal |
+| `weekly`, `monthly`, `yearly` | every day until it is met | `every` weeks, months or years | boolean: days per period. Counter: total per period | the sum of the period's values ≥ goal |
 
-* A week starts on the user's `week_start` day and is evaluated in calendar dates, so no time zone is involved.
-* **`value`** is one day's entry. **`period_value`** is what completion is measured on: the same as `value` for `daily` and `weekdays`, the week's sum for `weekly`.
+* `weekly`, `monthly` and `yearly` are **targets**: so many times over a period rather than on given days. `every` (1–52, 1 by default and always 1 for `daily` and `weekdays`) makes the period several weeks, months or years: `monthly` with `every: 3` is once a quarter.
+* An `interval` habit (`every` from 1 to 365 days) rests after a day it was done on and comes due again `every` days later; it then stays due until it is done. One that was never done is due.
+* A target that is met is no longer due for the rest of its period, except on a day it was logged on. Like any habit that is not due, it can still be logged.
+* A week starts on the user's `week_start` day and is evaluated in calendar dates, so no time zone is involved. Periods of several weeks are blocks counted from a fixed week (that of 5 January 1970), months are calendar months in blocks counted from January, and years are calendar years.
+* A boolean target's goal cannot be more days than its period has: 7 for each week, 30 for each month (365 × `every` / 12, rounded down), 365 for each year.
+* **`value`** is one day's entry. **`period_value`** is what completion is measured on: the same as `value` for `daily` and `weekdays`, the sum of the period's values for a target. **`period_start`** and **`period_end`** are the first and last day of that period.
 * A `weekdays` habit can still be logged on a day it is not due. The entry is kept, but the habit is not shown in the widget that day.
 * Changing a habit's schedule or goal does not touch its entries; past completion is re-evaluated against the new settings.
 
 ### Streaks and skipped days
 
-A streak is how many periods in a row a habit has been done: due days for `daily` and `weekdays` habits, weeks for `weekly` ones. `streak` is the run that includes, or ends right before, the current period; `best_streak` is the longest run ever.
+A streak is how many periods in a row a habit has been done: due days for `daily` and `weekdays` habits, whole periods for targets, and for an `interval` habit the times it was done no later than the day it came due. `streak` is the run that includes, or ends right before, the current period; `best_streak` is the longest run ever.
 
 * The period that is still running does not break a streak. It ends only once a period has passed without the habit being done.
 * Days a `weekdays` habit is not due neither count nor break one.
-* A **skipped** day (ill, travelling) neither counts nor breaks one. For a weekly habit, a skipped day excuses its whole week. A period that was skipped but done anyway simply counts as done.
-* A weekly habit's streak, like its completion, is measured on its whole week.
+* A **skipped** day (ill, travelling) neither counts nor breaks one. For a target, a skipped day excuses its whole period. A period that was skipped but done anyway simply counts as done.
+* A target's streak, like its completion, is measured on its whole period.
 
 ## 5. Authentication
 
@@ -300,6 +312,7 @@ Habit object:
   "description": "",
   "kind": "counter",
   "schedule": "weekdays",
+  "every": 1,
   "weekdays": [1, 2, 3, 4, 5],
   "goal": 8,
   "unit": "glasses",
@@ -314,14 +327,14 @@ Habit object:
 }
 ```
 
-`weekdays` is a list of day numbers (1 = Monday … 7 = Sunday) in the API and a bitmask in the database. It is required for `schedule: "weekdays"` and `null` otherwise. `category_id` must be one of the user's own categories. `reminders` is a list of at most 12, each a local time of day and the weekdays it applies on (`null` for every day); it is stored sorted and without duplicates, and an empty list removes them all.
+`weekdays` is a list of day numbers (1 = Monday … 7 = Sunday) in the API and a bitmask in the database. It is required for `schedule: "weekdays"` and `null` otherwise. `every` is how many weeks, months or years a target's period spans, or the days of an interval (section 4). `category_id` must be one of the user's own categories. `reminders` is a list of at most 12, each a local time of day and the weekdays it applies on (`null` for every day); it is stored sorted and without duplicates, and an empty list removes them all.
 
 | Method and path | Purpose |
 | --- | --- |
 | `GET /habits?archived=false\|true\|all` | List, ordered by `position`. Default `false`. |
-| `POST /habits` | Body `{ id?, name, description?, kind, schedule, weekdays?, goal?, unit?, color?, category_id?, reminders? }`. New habits go last. 409 if `id` exists. |
+| `POST /habits` | Body `{ id?, name, description?, kind, schedule, every?, weekdays?, goal?, unit?, color?, category_id?, reminders? }`. New habits go last. 409 if `id` exists. |
 | `GET /habits/{id}` | One habit. |
-| `PATCH /habits/{id}` | Any of `name`, `description`, `schedule`, `weekdays`, `goal`, `unit`, `color`, `category_id`, `reminders`, `archived`. The result must satisfy the goal rules in section 4. |
+| `PATCH /habits/{id}` | Any of `name`, `description`, `schedule`, `every`, `weekdays`, `goal`, `unit`, `color`, `category_id`, `reminders`, `archived`. A new `schedule` without `every` goes back to 1. The result must satisfy the goal rules in section 4. |
 | `DELETE /habits/{id}` | Deletes the habit and its entries. |
 | `PUT /habits/order` | Body `{ "ids": [...] }` listing every non-archived habit once. Sets `position` to the index. |
 | `POST /habits/{id}/webhook` | Creates or replaces the webhook secret. Returns `{ "webhook_url": "..." }`. |
@@ -345,12 +358,12 @@ Status object, returned by every write:
 
 ```json
 { "habit_id": "...", "date": "2026-10-04", "value": 1, "period_value": 2, "done": false,
-  "skipped": false, "note": "", "streak": 4, "best_streak": 9 }
+  "period_start": "2026-09-28", "period_end": "2026-10-04", "skipped": false, "note": "", "streak": 4, "best_streak": 9 }
 ```
 
 | Method and path | Purpose |
 | --- | --- |
-| `GET /today?date=YYYY-MM-DD` | The widget's and Today's read endpoint: `{ date, week_start_date, categories: [...], habits: [...] }`. `date` defaults to today in the user's time zone. Each habit row is the status above plus `id`, `name`, `kind`, `schedule`, `weekdays`, `goal`, `unit`, `color`, `category_id`, `reminders`, `due`, `week_values` and `week_skipped`. `due` is false only for a `weekdays` habit on a day outside its mask. `week_values` and `week_skipped` give each of the week's seven days, from `week_start_date`. Archived habits are left out. |
+| `GET /today?date=YYYY-MM-DD` | The widget's and Today's read endpoint: `{ date, week_start_date, categories: [...], habits: [...] }`. `date` defaults to today in the user's time zone. Each habit row is the status above plus `id`, `name`, `kind`, `schedule`, `every`, `weekdays`, `goal`, `unit`, `color`, `category_id`, `reminders`, `due`, `due_from`, `week_values` and `week_skipped`. `due` is false for a `weekdays` habit on a day outside its mask, an `interval` habit that is resting, and a met target with nothing logged that day. `due_from` is the day an `interval` habit comes due again after it was last done before `date`, `null` for one never done and for other schedules. `week_values` and `week_skipped` give each of the week's seven days, from `week_start_date`. Archived habits are left out. |
 | `GET /entries?from=&to=&habit_id=` | Raw entries `{ habit_id, date, value, skipped, note }` in an inclusive date range of at most 366 days. `habit_id` is optional. Days with no row are omitted. |
 | `POST /habits/{id}/entries/{date}/increment` | Body `{ "op_id": "<uuid>", "delta": 1 }`. Returns the status. |
 | `PUT /habits/{id}/entries/{date}` | Body with any of `value`, `skipped` and `note`. What is left out keeps its value. Returns the status. |
@@ -376,7 +389,7 @@ Webhooks are for automations that run somewhere other than the phone: Home Assis
 `POST /hook/{secret}` needs no other authentication. The secret is 32 random bytes in base64url and identifies one habit.
 
 * Counter habit: adds `delta` (query parameter, default 1) to today's value.
-* Boolean habit: checks today. For a weekly boolean that is one more day towards the week's goal.
+* Boolean habit: checks today. For a boolean target that is one more day towards the period's goal.
 * "Today" is the current date in the owner's time zone.
 * Returns 200 with the status. Unknown secret returns 404.
 * Only `POST` is accepted, so link previews and prefetchers cannot trigger it.
@@ -392,9 +405,9 @@ One Flutter codebase. On the web it is served by `habitd` from the same origin a
 | Screen | Contents |
 | --- | --- |
 | Today | The day's date with how many habits are done. Habits due that day, those without a category first, then under their categories; tapping a category's heading folds or unfolds it. Each row has a stamp (square for yes/no, round for counters), the name — highlighted when done —, the week as a strip of seven squares, progress (`5/8 glasses`, `2/3 this week`), the streak once it is at least two, and the day's note. Check or uncheck yes/no habits; `−` and `+` on counters. A sheet behind `⋮` or holding `+` offers `+5`, `+10`, `+25`, another amount, an exact value, a note, and skipping the day. A long-press (or right-click) on a habit opens a quick menu: skip today, that sheet, history, edit, archive, delete. Habits not scheduled that day sit in a folded section and can still be logged. Previous and next day navigation to fix past days. |
-| Habit editor | Name, description, kind (create only), schedule (every day / pick weekdays / weekly target), goal — labelled "per day", "days per week" or "total per week" —, unit (counters), colour, category (or a new one on the spot) and reminders: any number, each with a time and the days it applies on. For an existing habit: its webhook (create, copy, replace, remove), "Write NFC tag" on Android, archive, delete. |
+| Habit editor | Name, description, kind (create only), schedule (every day / pick weekdays / every few days, with the days between / target — per week, per month, per year, or a custom "every N weeks, months or years"), goal — labelled "per day", "days per month", "total every 2 weeks" and so on —, unit (counters), colour, category (or a new one on the spot) and reminders: any number, each with a time and the days it applies on. For an existing habit: its webhook (create, copy, replace, remove), "Write NFC tag" on Android, archive, delete. |
 | Habits | Drag to reorder. Categories: add, rename, reorder, delete. Archived habits, with restore. |
-| History | Per habit: current and best streak, completion over the last 30 and 90 days, the weekday it most often gets done on, a bar per week for the last twelve weeks, a calendar heatmap of the last 12 months, and its notes. In the heatmap, days that were not due or were skipped are greyed, days with a note carry a marked corner, and for weekly habits each week is marked met or missed. Tap a day to change its value, skip it or edit its note. |
+| History | Per habit: current and best streak, completion over the last 30 and 90 days, the weekday it most often gets done on, a bar per week for the last twelve weeks (for a target, a bar for each of its last periods, up to twelve and no further back than a year), a calendar heatmap of the last 12 months, and its notes. In the heatmap, days that were not due or were skipped are greyed, days with a note carry a marked corner, and for targets each period is marked met or missed under the week it ends in. Tap a day to change its value, skip it or edit its note. |
 | Settings | Time zone and first day of the week. API tokens (create, revoke). Signed-in devices and sessions (revoke). Sign out. |
 | Server, Sign in, Device | Android only: enter the server URL (checked with `GET /meta`), sign in, and see the account and server, the widget hint, "Refresh widget" and "Sign out". |
 
@@ -430,8 +443,8 @@ State:
 ```
 cache:  { date, week_start_date, fetched_at,
           categories: [{ id, name, collapsed }],
-          habits: [{ id, name, kind, schedule, weekdays, goal, unit, value, period_value,
-                     streak, skipped, category_id, reminders }] }
+          habits: [{ id, name, kind, schedule, every, weekdays, goal, unit, value, period_value,
+                     period_start, period_end, due_from, streak, skipped, category_id, reminders }] }
 outbox: [{ op_id, habit_id, date, type: "increment" | "set", delta | value }]
 ```
 
@@ -445,12 +458,12 @@ One resizable, scrollable list built with Glance, in the app's palette (light or
 | --- | --- | --- | --- |
 | Boolean, `daily` or `weekdays` | square stamp | checked today | toggles today |
 | Counter, `daily` or `weekdays` | round stamp, `3/8 glasses` | today's value ≥ goal | adds 1 to today |
-| Boolean, `weekly` | square stamp for today, `2/3 this week` | checked today | toggles today |
-| Counter, `weekly` | round stamp, `12/20 this week` | this week's total ≥ goal | adds 1 to today |
+| Boolean target | square stamp for today, `2/3 this week` | checked today | toggles today |
+| Counter target | round stamp, `12/20 this month` | the period's total ≥ goal | adds 1 to today |
 
 * The name of a habit that is done is highlighted. A streak of two or more is shown after the progress.
 * A `weekdays` habit is hidden on days it is not due. A skipped habit shows a dash and is left out of the header's count.
-* A weekly habit stays in the list all week, including after it is completed.
+* A target stays in the list until it is met, and for the rest of the day it was met on. An `interval` habit is hidden while it rests. A target's progress names the period: `this week`, `this month`, `this year`, `this quarter` for three months, `this period` for any other number of them.
 * Counters keep counting past the goal. Lowering one is done in the app.
 * Tapping the header or a category heading opens the app. If nothing is due, the widget says so. If the user is signed out, it shows "Sign in".
 
@@ -474,14 +487,14 @@ A second job refreshes every 30 minutes.
 
 Conflicts need no resolution logic: increments are additive and deduplicated by `op_id`, and sets are last-write-wins.
 
-### Day and week change
+### Day and period change
 
 If the cache's date is not the local date, the widget redraws from the cache without waiting for the network, then refreshes:
 
 * Every `value` becomes 0 and nothing is skipped.
-* `period_value` becomes 0 too, except for weekly habits when the local date is still within the seven days starting at `week_start_date`.
+* `period_value` becomes 0 too, except for targets while the local date is no later than `period_end`. After that the widget works out the new period itself: the same number of days on for weeks, of months for months and years.
 * A streak becomes 0 if the period that just ended was due, not done and not skipped.
-* Which `weekdays` habits are due is recomputed from the local weekday.
+* Which `weekdays` habits are due is recomputed from the local weekday. An `interval` habit that was done rests from that day, and one that is resting comes due on its `due_from`.
 
 ### Quick add
 
@@ -513,7 +526,7 @@ A tag identifies a habit; the app does the logging with its own device token. Th
 
 ### Reminders
 
-A habit can have any number of reminders, each at a local time of day and on every day or only on chosen weekdays. Each gets its own alarm, set for its next occurrence. When one goes off, the app refreshes from the server (briefly; the cache is used if that fails) and shows a notification only if the habit is due today, not done and not skipped. So a habit that is only due on some days is only reminded on those, whatever its reminders say, and a weekly habit is reminded until the week's goal is met. The notification opens the app and has a button — "Done" or "Add 1" — that logs the habit through the outbox like a widget tap.
+A habit can have any number of reminders, each at a local time of day and on every day or only on chosen weekdays. Each gets its own alarm, set for its next occurrence. When one goes off, the app refreshes from the server (briefly; the cache is used if that fails) and shows a notification only if the habit is due today, not done and not skipped. So a habit that is only due on some days is only reminded on those, whatever its reminders say, and a target is reminded until its period's goal is met. The notification opens the app and has a button — "Done" or "Add 1" — that logs the habit through the outbox like a widget tap.
 
 * Alarms are inexact, so a reminder can be a few minutes late; exact ones would need a special permission.
 * They are set again after each refresh, after each time they go off, and after a restart of the phone.

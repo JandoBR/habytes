@@ -223,14 +223,14 @@ class _HabitRow extends ConsumerWidget {
     final today = ref.read(todayProvider.notifier);
     final isBoolean = habit.kind == HabitKind.boolean;
     final ink = habitInk(context, habit.color);
-    // A weekly habit can be checked today without being done for the week.
+    // A target can be checked today without being done for its period.
     final marked = isBoolean ? habit.value > 0 : habit.done;
     final excused = habit.skipped && !marked;
     final detail = [
       if (excused) 'skipped',
       if (habit.progress.isNotEmpty) habit.progress,
       // One period in a row is not worth announcing.
-      if (habit.streak > 1) '${streakLength(habit.streak, habit.schedule)} running',
+      if (habit.streak > 1) '${streakLength(habit.streak, habit.schedule, habit.every)} running',
     ].join(' · ');
 
     void more() => showModalBottomSheet<void>(

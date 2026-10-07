@@ -11,6 +11,10 @@ import '../state/data.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 
+/// How a habit comes round: every day, on picked weekdays, some days after it
+/// was last done, or as a target over a week, a month, a year or several of them.
+enum _Rhythm { daily, weekdays, interval, target }
+
 /// Creates a habit, or edits the one with [habitId].
 class HabitEditorScreen extends ConsumerStatefulWidget {
   const HabitEditorScreen({super.key, this.habitId});
@@ -28,6 +32,13 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
   final _goal = TextEditingController(text: '1');
   HabitKind _kind = HabitKind.boolean;
   Schedule _schedule = Schedule.daily;
+
+  /// Whether a target's period is several weeks, months or years: [_every] of them.
+  bool _custom = false;
+  final _every = TextEditingController(text: '2');
+
+  /// The days an interval habit rests after it is done.
+  final _interval = TextEditingController(text: '3');
   Set<int> _weekdays = {1, 2, 3, 4, 5};
   final _unit = TextEditingController();
   String _color = 'ink';
@@ -56,6 +67,8 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
     _name.dispose();
     _description.dispose();
     _goal.dispose();
+    _every.dispose();
+    _interval.dispose();
     _unit.dispose();
     super.dispose();
   }
@@ -80,6 +93,12 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
         _goal.text = '${habit.goal}';
         _kind = habit.kind;
         _schedule = habit.schedule;
+        if (habit.schedule == Schedule.interval) {
+          _interval.text = '${habit.every}';
+        } else if (habit.every > 1) {
+          _custom = true;
+          _every.text = '${habit.every}';
+        }
         _weekdays = habit.weekdays?.toSet() ?? _weekdays;
         _unit.text = habit.unit;
         _color = habit.color;
@@ -94,20 +113,71 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
     }
   }
 
-  /// A boolean habit only has a goal when it is weekly.
-  bool get _hasGoal => _kind == HabitKind.counter || _schedule == Schedule.weekly;
+  _Rhythm get _rhythm => switch (_schedule) {
+    Schedule.daily => _Rhythm.daily,
+    Schedule.weekdays => _Rhythm.weekdays,
+    Schedule.interval => _Rhythm.interval,
+    Schedule.weekly || Schedule.monthly || Schedule.yearly => _Rhythm.target,
+  };
 
-  String get _goalLabel => switch ((_kind, _schedule)) {
-    (HabitKind.boolean, _) => 'Days per week',
-    (HabitKind.counter, Schedule.weekly) => 'Total per week',
-    (HabitKind.counter, _) => 'Per day',
+  void _setRhythm(_Rhythm rhythm) {
+    if (rhythm == _rhythm) return;
+    setState(() {
+      _schedule = switch (rhythm) {
+        _Rhythm.daily => Schedule.daily,
+        _Rhythm.weekdays => Schedule.weekdays,
+        _Rhythm.interval => Schedule.interval,
+        _Rhythm.target => Schedule.weekly,
+      };
+      _custom = false;
+    });
+  }
+
+  /// How many weeks, months or years the target's period spans, or the days
+  /// of an interval.
+  int get _everyCount {
+    if (_schedule == Schedule.interval) return (int.tryParse(_interval.text) ?? 1).clamp(1, 365);
+    return _schedule.isTarget && _custom ? (int.tryParse(_every.text) ?? 1).clamp(1, 52) : 1;
+  }
+
+  /// A boolean habit only has a goal when it is a target.
+  bool get _hasGoal => _kind == HabitKind.counter || _schedule.isTarget;
+
+  String get _goalLabel {
+    if (_schedule == Schedule.interval) return 'Each time';
+    if (!_schedule.isTarget) return 'Per day';
+    final every = _everyCount;
+    final over = every == 1 ? 'per ${_schedule.unit}' : 'every $every ${_schedule.unit}s';
+    return '${_kind == HabitKind.boolean ? 'Days' : 'Total'} $over';
+  }
+
+  /// The most days a yes/no target can ask for, as the server counts them.
+  int get _maxDays => switch (_schedule) {
+    Schedule.weekly => 7 * _everyCount,
+    Schedule.monthly => 365 * _everyCount ~/ 12,
+    Schedule.yearly => 365 * _everyCount,
+    Schedule.daily || Schedule.weekdays || Schedule.interval => 1,
   };
 
   String? _validateGoal(String? text) {
     final goal = int.tryParse(text ?? '');
     if (goal == null || goal < 1) return 'Enter a number of at least 1';
-    if (_kind == HabitKind.boolean && goal > 7) return 'A week has 7 days';
+    if (_kind == HabitKind.boolean && goal > _maxDays) {
+      final every = _everyCount;
+      final period = every == 1 ? 'A ${_schedule.unit}' : '$every ${_schedule.unit}s';
+      return '$period ${every == 1 ? 'has' : 'have'} $_maxDays days';
+    }
     return null;
+  }
+
+  String? _validateInterval(String? text) {
+    final days = int.tryParse(text ?? '');
+    return days == null || days < 1 || days > 365 ? 'From 1 to 365' : null;
+  }
+
+  String? _validateEvery(String? text) {
+    final every = int.tryParse(text ?? '');
+    return every == null || every < 1 || every > 52 ? 'From 1 to 52' : null;
   }
 
   Future<void> _run(Future<void> Function() action) async {
@@ -140,6 +210,7 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
           description: _description.text.trim(),
           kind: _kind,
           schedule: _schedule,
+          every: _everyCount,
           weekdays: weekdays,
           goal: goal,
           unit: unit,
@@ -152,6 +223,7 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
           'name': _name.text.trim(),
           'description': _description.text.trim(),
           'schedule': _schedule.name,
+          'every': _everyCount,
           'weekdays': weekdays,
           'goal': goal,
           'unit': unit,
@@ -356,16 +428,38 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
           const SizedBox(height: 24),
           Text('Schedule', style: Theme.of(context).textTheme.labelLarge),
           const SizedBox(height: 8),
-          SegmentedButton<Schedule>(
-            segments: const [
-              ButtonSegment(value: Schedule.daily, label: Text('Every day')),
-              ButtonSegment(value: Schedule.weekdays, label: Text('Pick days')),
-              ButtonSegment(value: Schedule.weekly, label: Text('Weekly target')),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: [
+              for (final (rhythm, label) in const [
+                (_Rhythm.daily, 'Every day'),
+                (_Rhythm.weekdays, 'Pick days'),
+                (_Rhythm.interval, 'Every few days'),
+                (_Rhythm.target, 'Target'),
+              ])
+                ChoiceChip(
+                  label: Text(label),
+                  showCheckmark: false,
+                  selected: _rhythm == rhythm,
+                  onSelected: (_) => _setRhythm(rhythm),
+                ),
             ],
-            showSelectedIcon: false,
-            selected: {_schedule},
-            onSelectionChanged: (schedules) => setState(() => _schedule = schedules.first),
           ),
+          if (_schedule == Schedule.interval) ...[
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _interval,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              decoration: const InputDecoration(
+                labelText: 'Days between',
+                helperText: 'Due again this many days after it was last done.',
+              ),
+              validator: _validateInterval,
+            ),
+          ],
+          if (_schedule.isTarget) ..._targetPeriod(context),
           if (_schedule == Schedule.weekdays) ...[
             const SizedBox(height: 16),
             Wrap(
@@ -487,6 +581,79 @@ class _HabitEditorScreenState extends ConsumerState<HabitEditorScreen> {
       ),
     ),
   );
+
+  /// What a target is set over: a week, a month, a year, or a number of them.
+  List<Widget> _targetPeriod(BuildContext context) {
+    const units = [Schedule.weekly, Schedule.monthly, Schedule.yearly];
+    return [
+      const SizedBox(height: 16),
+      Wrap(
+        spacing: 8,
+        runSpacing: 4,
+        children: [
+          for (final unit in units)
+            ChoiceChip(
+              label: Text('Per ${unit.unit}'),
+              showCheckmark: false,
+              selected: !_custom && _schedule == unit,
+              onSelected: (_) => setState(() {
+                _schedule = unit;
+                _custom = false;
+              }),
+            ),
+          ChoiceChip(
+            label: const Text('Custom'),
+            showCheckmark: false,
+            selected: _custom,
+            onSelected: (_) => setState(() => _custom = true),
+          ),
+        ],
+      ),
+      if (_custom) ...[
+        const SizedBox(height: 16),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 96,
+              child: TextFormField(
+                controller: _every,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: const InputDecoration(labelText: 'Every'),
+                validator: _validateEvery,
+                // The goal's label and limit follow it.
+                onChanged: (_) => setState(() {}),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: DropdownButtonFormField<Schedule>(
+                key: ValueKey(_schedule),
+                initialValue: _schedule,
+                decoration: const InputDecoration(labelText: 'Of'),
+                items: [
+                  for (final unit in units)
+                    DropdownMenuItem(value: unit, child: Text('${unit.unit}s')),
+                ],
+                onChanged: (unit) => setState(() => _schedule = unit ?? _schedule),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(
+          switch (_schedule) {
+            Schedule.weekly => 'Counted in whole weeks.',
+            Schedule.monthly => 'Counted in calendar months from January, so 3 is a quarter.',
+            _ => 'Counted in calendar years.',
+          },
+          style: Theme.of(context).textTheme.bodySmall!
+              .copyWith(color: AppPalette.of(context).muted),
+        ),
+      ],
+    ];
+  }
 
   /// The habit's webhook: an address that logs it when something sends a POST there.
   List<Widget> _webhook(BuildContext context) {

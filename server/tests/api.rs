@@ -155,7 +155,14 @@ async fn habit_validation() {
         json!({ "name": "", "kind": "boolean", "schedule": "daily" }),
         json!({ "name": "x".repeat(101), "kind": "boolean", "schedule": "daily" }),
         json!({ "name": "A", "kind": "timer", "schedule": "daily" }),
-        json!({ "name": "A", "kind": "boolean", "schedule": "monthly" }),
+        json!({ "name": "A", "kind": "boolean", "schedule": "fortnightly" }),
+        json!({ "name": "A", "kind": "boolean", "schedule": "daily", "every": 2 }),
+        json!({ "name": "A", "kind": "boolean", "schedule": "interval", "every": 366 }),
+        json!({ "name": "A", "kind": "boolean", "schedule": "interval", "every": 3, "goal": 2 }),
+        json!({ "name": "A", "kind": "boolean", "schedule": "monthly", "every": 0 }),
+        json!({ "name": "A", "kind": "boolean", "schedule": "monthly", "every": 53 }),
+        json!({ "name": "A", "kind": "boolean", "schedule": "monthly", "goal": 31 }),
+        json!({ "name": "A", "kind": "boolean", "schedule": "monthly", "weekdays": [1] }),
         json!({ "name": "A", "kind": "boolean", "schedule": "weekdays" }),
         json!({ "name": "A", "kind": "boolean", "schedule": "weekdays", "weekdays": [] }),
         json!({ "name": "A", "kind": "boolean", "schedule": "weekdays", "weekdays": [8] }),
@@ -257,6 +264,7 @@ async fn completion_boolean_daily() {
         status,
         json!({
             "habit_id": habit, "date": MON, "value": 1, "period_value": 1, "done": true,
+            "period_start": MON, "period_end": MON,
             "skipped": false, "note": "", "streak": 1, "best_streak": 1,
         })
     );
@@ -342,7 +350,8 @@ async fn completion_boolean_weekly() {
     let status = app.set(&token, &habit, SUN, 1).await;
     assert_eq!((status["period_value"].clone(), status["done"].clone()), (json!(3), json!(true)));
 
-    // The whole week sees the same total; an unchecked day still shows value 0.
+    // The whole week sees the same total; an unchecked day still shows value 0,
+    // and with the week met the habit is out of that day's list.
     let tuesday = today(&app, &token, TUE).await;
     let row = &tuesday["habits"][0];
     assert_eq!(
@@ -352,9 +361,11 @@ async fn completion_boolean_weekly() {
             row["period_value"].clone(),
             row["done"].clone()
         ),
-        (json!(true), json!(0), json!(3), json!(true))
+        (json!(false), json!(0), json!(3), json!(true))
     );
     assert_eq!(tuesday["week_start_date"], MON);
+    // It stays on a day it was logged on.
+    assert_eq!(today(&app, &token, SUN).await["habits"][0]["due"], true);
 
     // The next week starts from nothing.
     let next = today(&app, &token, NEXT_MON).await;
@@ -365,6 +376,132 @@ async fn completion_boolean_weekly() {
 
     // Unchecking one day takes the week below its goal again.
     assert_eq!(app.set(&token, &habit, MON, 0).await["done"], false);
+}
+
+#[tokio::test]
+async fn completion_over_months_and_years() {
+    let app = TestApp::new().await;
+    let token = app.user("alice").await;
+    let monthly = app
+        .habit(
+            &token,
+            json!({ "name": "Call home", "kind": "boolean", "schedule": "monthly", "goal": 2 }),
+        )
+        .await;
+    let yearly = app
+        .habit(
+            &token,
+            json!({ "name": "Books", "kind": "counter", "schedule": "yearly", "goal": 3 }),
+        )
+        .await;
+
+    let status = app.set(&token, &monthly, "2025-06-02", 1).await;
+    assert_eq!(
+        (status["period_start"].clone(), status["period_end"].clone(), status["done"].clone()),
+        (json!("2025-06-01"), json!("2025-06-30"), json!(false))
+    );
+    let status = app.set(&token, &monthly, "2025-06-30", 1).await;
+    assert_eq!(
+        (status["period_value"].clone(), status["done"].clone(), status["streak"].clone()),
+        (json!(2), json!(true), json!(1))
+    );
+    // Any day of the month sees the month's total, and the next month starts from nothing.
+    let june = today(&app, &token, "2025-06-15").await;
+    assert_eq!(june["habits"][0]["period_value"], 2);
+    assert_eq!(june["habits"][0]["every"], 1);
+    let july = today(&app, &token, "2025-07-01").await;
+    assert_eq!(
+        (july["habits"][0]["period_value"].clone(), july["habits"][0]["streak"].clone()),
+        (json!(0), json!(1))
+    );
+    assert_eq!(july["habits"][0]["period_end"], "2025-07-31");
+
+    app.set(&token, &yearly, "2025-01-01", 1).await;
+    let status = app.set(&token, &yearly, "2025-12-31", 2).await;
+    assert_eq!(
+        (status["period_start"].clone(), status["period_value"].clone(), status["done"].clone()),
+        (json!("2025-01-01"), json!(3), json!(true))
+    );
+    assert_eq!(today(&app, &token, "2025-06-15").await["habits"][1]["period_value"], 3);
+}
+
+#[tokio::test]
+async fn an_interval_is_due_again_some_days_after_it_was_done() {
+    let app = TestApp::new().await;
+    let token = app.user("alice").await;
+    let body =
+        json!({ "name": "Water plants", "kind": "boolean", "schedule": "interval", "every": 3 });
+    let habit = app.habit(&token, body).await;
+    let row = |body: Value| body["habits"][0].clone();
+
+    // Never done: due until it is.
+    let monday = row(today(&app, &token, MON).await);
+    assert_eq!((monday["due"].clone(), monday["due_from"].clone()), (json!(true), Value::Null));
+    let status = app.set(&token, &habit, MON, 1).await;
+    assert_eq!((status["done"].clone(), status["streak"].clone()), (json!(true), json!(1)));
+    assert_eq!(row(today(&app, &token, MON).await)["due"], true);
+
+    // It rests for two days and comes due on the third.
+    let tuesday = row(today(&app, &token, TUE).await);
+    assert_eq!(
+        (tuesday["due"].clone(), tuesday["due_from"].clone()),
+        (json!(false), json!("2025-06-05"))
+    );
+    assert_eq!(tuesday["streak"], 1);
+    assert_eq!(row(today(&app, &token, WED).await)["due"], false);
+    assert_eq!(row(today(&app, &token, "2025-06-05").await)["due"], true);
+
+    // Done on the day it was due the streak goes on; left any longer it ends.
+    assert_eq!(app.set(&token, &habit, "2025-06-05", 1).await["streak"], 2);
+    let late = row(today(&app, &token, NEXT_MON).await);
+    assert_eq!((late["due"].clone(), late["streak"].clone()), (json!(true), json!(0)));
+    assert_eq!(late["best_streak"], 2);
+}
+
+#[tokio::test]
+async fn targets_can_span_several_periods() {
+    let app = TestApp::new().await;
+    let token = app.user("alice").await;
+    let body = json!({
+        "name": "Dentist", "kind": "boolean", "schedule": "monthly", "every": 3, "goal": 1,
+    });
+    let (status, habit) = app.api(&token, "POST", "/api/v1/habits", body).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(habit["every"], 3);
+    let id = habit["id"].as_str().unwrap();
+    let path = format!("/api/v1/habits/{id}");
+
+    // Three months are a calendar quarter.
+    let status = app.set(&token, id, "2025-05-20", 1).await;
+    assert_eq!(
+        (status["period_start"].clone(), status["period_end"].clone(), status["done"].clone()),
+        (json!("2025-04-01"), json!("2025-06-30"), json!(true))
+    );
+    assert_eq!(today(&app, &token, "2025-07-01").await["habits"][0]["done"], false);
+
+    // Two weeks at a time: both weeks add up.
+    let (status, patched) = app
+        .api(&token, "PATCH", &path, json!({ "schedule": "weekly", "every": 2, "goal": 2 }))
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        (patched["schedule"].clone(), patched["every"].clone()),
+        (json!("weekly"), json!(2))
+    );
+    let first = app.set(&token, id, MON, 1).await;
+    let start = first["period_start"].as_str().unwrap().to_string();
+    let other_week = if start == MON { NEXT_MON } else { "2025-05-26" };
+    let status = app.set(&token, id, other_week, 1).await;
+    assert_eq!((status["period_value"].clone(), status["done"].clone()), (json!(2), json!(true)));
+
+    // A new schedule goes back to one period at a time unless it says otherwise.
+    let (_, patched) = app.api(&token, "PATCH", &path, json!({ "schedule": "yearly" })).await;
+    assert_eq!(patched["every"], 1);
+    let (status, _) = app.api(&token, "PATCH", &path, json!({ "every": 2 })).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) =
+        app.api(&token, "PATCH", &path, json!({ "schedule": "daily", "every": 2 })).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
 }
 
 #[tokio::test]

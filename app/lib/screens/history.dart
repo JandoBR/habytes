@@ -133,9 +133,19 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     final text = Theme.of(context).textTheme;
     final palette = AppPalette.of(context);
     final weekStart = ref.watch(userProvider).weekStart;
-    final stats = computeStats(habit, _entries, _today, weekStart);
+    final stats = computeStats(habit, _entries, _today, weekStart, since: _first);
     final ink = habitInk(context, habit.color);
-    final period = habit.schedule == Schedule.weekly ? 'weeks' : 'days';
+    final target = habit.schedule.isTarget;
+    final period = periodName(habit.schedule, habit.every);
+    // Twelve weeks, or as many of a target's own periods as the year holds.
+    final String trendTitle;
+    if (!target || period == 'week') {
+      trendTitle = 'LAST 12 WEEKS';
+    } else if (stats.trend.length == 1) {
+      trendTitle = 'THIS ${period.toUpperCase()}';
+    } else {
+      trendTitle = 'LAST ${stats.trend.length} ${period.toUpperCase()}S';
+    }
     String percent(double? rate) => rate == null ? '–' : '${(rate * 100).round()}%';
     final notes = _entries.entries.where((e) => e.value.note.isNotEmpty).toList()
       ..sort((a, b) => b.key.compareTo(a.key));
@@ -153,12 +163,12 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
             if (_status != null) ...[
               _Figure(
                 label: 'Current streak',
-                value: streakLength(_status!.streak, habit.schedule),
+                value: streakLength(_status!.streak, habit.schedule, habit.every),
                 marked: _status!.streak > 0 && _status!.streak == _status!.bestStreak,
               ),
               _Figure(
                 label: 'Best streak',
-                value: streakLength(_status!.bestStreak, habit.schedule),
+                value: streakLength(_status!.bestStreak, habit.schedule, habit.every),
               ),
             ],
             _Figure(label: 'Last 30 days', value: percent(stats.rate30)),
@@ -168,14 +178,14 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
           ],
         ),
         const SizedBox(height: 24),
-        Text('LAST 12 WEEKS', style: text.titleSmall!.copyWith(color: palette.muted)),
+        Text(trendTitle, style: text.titleSmall!.copyWith(color: palette.muted)),
         const SizedBox(height: 8),
-        _Trend(weeks: stats.weeks, color: ink),
+        _Trend(bars: stats.trend, color: ink),
         const SizedBox(height: 4),
         Text(
-          habit.schedule == Schedule.weekly
-              ? 'How far each week got towards its goal.'
-              : 'The share of due $period done each week.',
+          target
+              ? 'How far each $period got towards its goal.'
+              : 'The share of due days done each week.',
           style: text.bodySmall!.copyWith(color: palette.muted),
         ),
         const SizedBox(height: 24),
@@ -191,8 +201,8 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
         const SizedBox(height: 16),
         _Legend(
           color: ink,
-          weekly: habit.schedule == Schedule.weekly,
-          hasOffDays: habit.weekdays != null,
+          period: target ? period : null,
+          hasOffDays: habit.weekdays != null || habit.schedule == Schedule.interval,
           hasSkipped: _entries.values.any((e) => e.skipped),
         ),
         const SizedBox(height: 8),
@@ -257,11 +267,11 @@ class _Figure extends StatelessWidget {
   }
 }
 
-/// Twelve bars, one per week, oldest first.
+/// A bar per week or period, oldest first.
 class _Trend extends StatelessWidget {
-  const _Trend({required this.weeks, required this.color});
+  const _Trend({required this.bars, required this.color});
 
-  final List<double> weeks;
+  final List<double> bars;
   final Color color;
 
   @override
@@ -273,7 +283,7 @@ class _Trend extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          for (final (index, week) in weeks.indexed) ...[
+          for (final (index, week) in bars.indexed) ...[
             if (index > 0) const SizedBox(width: 4),
             Expanded(
               child: Tooltip(
@@ -317,15 +327,19 @@ class _Heatmap extends StatelessWidget {
   final Color color;
   final void Function(DateTime date) onTap;
 
-  bool get _weekly => habit.schedule == Schedule.weekly;
+  bool get _target => habit.schedule.isTarget;
+
+  (DateTime, DateTime) _period(DateTime day) =>
+      periodBounds(habit.schedule, habit.every, day, weekStart);
 
   /// How full a day's cell is drawn, from 0 to 1.
   double _fill(int value) {
     if (value <= 0) return 0;
-    // A weekly counter's goal is for the whole week; spread it over the days.
-    final target = _weekly && habit.kind == HabitKind.counter ? habit.goal / 7 : 1.0;
-    final perDay = _weekly ? target : habit.goal.toDouble();
-    return (value / perDay).clamp(0.35, 1.0);
+    if (!_target) return (value / habit.goal).clamp(0.35, 1.0);
+    if (habit.kind == HabitKind.boolean) return 1;
+    // A counter's target is for the whole period; spread it over the days.
+    final (start, end) = _period(today);
+    return (value * (end.difference(start).inDays + 1) / habit.goal).clamp(0.35, 1.0);
   }
 
   @override
@@ -334,6 +348,7 @@ class _Heatmap extends StatelessWidget {
     final palette = AppPalette.of(context);
     final small = Theme.of(context).textTheme.labelSmall;
     final gridStart = weekStartDate(first, weekStart);
+    final isDue = dueDays(habit, entries);
     final weeks = (today.difference(gridStart).inDays ~/ 7) + 1;
 
     Widget cell(DateTime date) {
@@ -341,7 +356,7 @@ class _Heatmap extends StatelessWidget {
         return const SizedBox(width: _cell + _gap, height: _cell + _gap);
       }
       final entry = entries[ymd(date)] ?? const DayEntry();
-      final due = habit.isDueOn(date);
+      final due = isDue(date);
       final skipped = entry.skipped && entry.value == 0;
       final Color fill;
       if (entry.value > 0) {
@@ -384,28 +399,39 @@ class _Heatmap extends StatelessWidget {
       );
     }
 
-    /// Whether a week met its goal: nothing while it is still running or is
-    /// cut off by the start of the range.
-    Widget weekMarker(DateTime start) {
-      final days = [for (var i = 0; i < 7; i++) start.add(Duration(days: i))];
-      final sum = days.fold(0, (total, day) => total + (entries[ymd(day)]?.value ?? 0));
-      final met = sum >= habit.goal;
-      final complete = !start.isBefore(first) && !days.last.isAfter(today);
-      final excused = days.any((day) => entries[ymd(day)]?.skipped ?? false);
+    /// Whether the period that [day] is in met its goal: nothing while it is
+    /// still running or is cut off by the start of the range.
+    Widget? verdict(DateTime day) {
+      final (start, end) = _period(day);
+      var sum = 0, excused = false;
+      for (var d = start; !d.isAfter(end); d = d.add(const Duration(days: 1))) {
+        sum += entries[ymd(d)]?.value ?? 0;
+        excused = excused || (entries[ymd(d)]?.skipped ?? false);
+      }
+      if (sum >= habit.goal) {
+        return Container(
+          width: 13,
+          height: 13,
+          color: colors.secondary,
+          child: Icon(Icons.check, size: 11, color: colors.onSecondary),
+        );
+      }
+      final complete = !start.isBefore(first) && !end.isAfter(today);
+      if (!complete || excused) return null;
+      return Icon(Icons.close, size: 11, color: colors.onSurfaceVariant);
+    }
+
+    /// The mark under a week: for the period that ends in it, or for the
+    /// running one under today's week once it is met.
+    Widget periodMarker(List<DateTime> days) {
+      final last = days.where((day) => !day.isAfter(today) && _period(day).$2 == day).firstOrNull;
       return SizedBox(
         width: _cell + _gap,
         height: 14,
         child: Center(
-          child: met
-              ? Container(
-                  width: 13,
-                  height: 13,
-                  color: colors.secondary,
-                  child: Icon(Icons.check, size: 11, color: colors.onSecondary),
-                )
-              : complete && !excused
-              ? Icon(Icons.close, size: 11, color: colors.onSurfaceVariant)
-              : null,
+          child:
+              (last == null ? null : verdict(last)) ??
+              (days.contains(today) ? verdict(today) : null),
         ),
       );
     }
@@ -454,7 +480,7 @@ class _Heatmap extends StatelessWidget {
                                 ),
                         ),
                         for (final day in days) cell(day),
-                        if (_weekly) weekMarker(start),
+                        if (_target) periodMarker(days),
                       ],
                     );
                   }(),
@@ -470,13 +496,15 @@ class _Heatmap extends StatelessWidget {
 class _Legend extends StatelessWidget {
   const _Legend({
     required this.color,
-    required this.weekly,
+    required this.period,
     required this.hasOffDays,
     required this.hasSkipped,
   });
 
   final Color color;
-  final bool weekly;
+
+  /// What a target's period is called; null for a habit that has a goal per day.
+  final String? period;
   final bool hasOffDays;
   final bool hasSkipped;
 
@@ -485,6 +513,8 @@ class _Legend extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     final palette = AppPalette.of(context);
     final small = Theme.of(context).textTheme.bodySmall;
+    final period = this.period;
+    final name = period == null ? '' : period[0].toUpperCase() + period.substring(1);
 
     Widget item(Widget mark, String label) => Row(
       mainAxisSize: MainAxisSize.min,
@@ -517,7 +547,7 @@ class _Legend extends StatelessWidget {
             ),
             'Skipped',
           ),
-        if (weekly) ...[
+        if (period != null) ...[
           item(
             Container(
               width: 14,
@@ -525,9 +555,9 @@ class _Legend extends StatelessWidget {
               color: colors.secondary,
               child: Icon(Icons.check, size: 12, color: colors.onSecondary),
             ),
-            'Week met',
+            '$name met',
           ),
-          item(Icon(Icons.close, size: 13, color: colors.onSurfaceVariant), 'Week missed'),
+          item(Icon(Icons.close, size: 13, color: colors.onSurfaceVariant), '$name missed'),
         ],
       ],
     );

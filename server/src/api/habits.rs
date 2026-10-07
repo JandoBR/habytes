@@ -11,7 +11,7 @@ use uuid::Uuid;
 use crate::{
     error::{ApiError, ApiResult},
     extract::{ApiJson, AuthUser, parse_id},
-    schedule::{mask_to_weekdays, validate_goal, weekdays_to_mask},
+    schedule::{Period, mask_to_weekdays, validate_every, validate_goal, weekdays_to_mask},
     state::AppState,
     util::{now, random_secret, rfc3339},
 };
@@ -24,6 +24,9 @@ pub struct Habit {
     pub description: String,
     pub kind: String,
     pub schedule: String,
+    /// How many weeks, months or years a target's period spans, or the days
+    /// of an interval.
+    pub every: i64,
     pub weekdays: Option<i64>,
     pub goal: i64,
     pub position: i64,
@@ -42,6 +45,11 @@ pub struct Habit {
 const COLORS: [&str; 6] = ["ink", "red", "green", "violet", "orange", "teal"];
 
 impl Habit {
+    /// What the goal is measured over.
+    pub fn period(&self) -> Period {
+        Period::of(&self.schedule, self.every)
+    }
+
     pub fn webhook_url(&self, public_url: &str) -> Option<String> {
         self.webhook_secret.as_ref().map(|secret| format!("{public_url}/hook/{secret}"))
     }
@@ -58,6 +66,7 @@ impl Habit {
             "description": self.description,
             "kind": self.kind,
             "schedule": self.schedule,
+            "every": self.every,
             "weekdays": self.weekdays.map(mask_to_weekdays),
             "goal": self.goal,
             "unit": self.unit,
@@ -176,11 +185,13 @@ fn resolve_weekdays(schedule: &str, weekdays: Option<&[i64]>) -> ApiResult<Optio
         ("weekdays", None) => {
             Err(ApiError::validation("weekdays is required for a weekdays schedule"))
         }
-        ("daily" | "weekly", None) => Ok(None),
-        ("daily" | "weekly", Some(_)) => {
+        ("daily" | "weekly" | "monthly" | "yearly" | "interval", None) => Ok(None),
+        ("daily" | "weekly" | "monthly" | "yearly" | "interval", Some(_)) => {
             Err(ApiError::validation("weekdays must be null unless the schedule is weekdays"))
         }
-        _ => Err(ApiError::validation("schedule must be daily, weekdays or weekly")),
+        _ => Err(ApiError::validation(
+            "schedule must be daily, weekdays, weekly, monthly, yearly or interval",
+        )),
     }
 }
 
@@ -228,6 +239,7 @@ pub struct CreateHabit {
     description: String,
     kind: String,
     schedule: String,
+    every: Option<i64>,
     weekdays: Option<Vec<i64>>,
     goal: Option<i64>,
     #[serde(default)]
@@ -249,8 +261,10 @@ pub async fn create(
         return Err(ApiError::validation("kind must be boolean or counter"));
     }
     let weekdays = resolve_weekdays(&body.schedule, body.weekdays.as_deref())?;
+    let every = body.every.unwrap_or(1);
+    validate_every(&body.schedule, every)?;
     let goal = body.goal.unwrap_or(1);
-    validate_goal(&body.kind, &body.schedule, goal)?;
+    validate_goal(&body.kind, &body.schedule, every, goal)?;
     let unit = validate_unit(&body.unit)?;
     let color = body.color.unwrap_or_else(|| "ink".into());
     validate_color(&color)?;
@@ -263,10 +277,10 @@ pub async fn create(
     let now = now();
     let position = next_position(&state.db, auth.user.id).await?;
     let result = sqlx::query(
-        "INSERT INTO habits (id, user_id, name, description, kind, schedule, weekdays, goal,
-                             position, created_at, updated_at, unit, color, category_id,
+        "INSERT INTO habits (id, user_id, name, description, kind, schedule, every, weekdays,
+                             goal, position, created_at, updated_at, unit, color, category_id,
                              reminders)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (id) DO NOTHING",
     )
     .bind(id)
@@ -275,6 +289,7 @@ pub async fn create(
     .bind(&body.description)
     .bind(&body.kind)
     .bind(&body.schedule)
+    .bind(every)
     .bind(weekdays)
     .bind(goal)
     .bind(position)
@@ -317,6 +332,7 @@ pub struct PatchHabit {
     name: Option<String>,
     description: Option<String>,
     schedule: Option<String>,
+    every: Option<i64>,
     #[serde(default, deserialize_with = "nullable")]
     weekdays: Option<Option<Vec<i64>>>,
     goal: Option<i64>,
@@ -359,10 +375,15 @@ pub async fn patch(
             resolve_weekdays(&habit.schedule, current.as_deref())?
         }
     };
+    // A new schedule starts over at one week, month or year at a time.
+    if let Some(every) = body.every.or(schedule_changed.then_some(1)) {
+        habit.every = every;
+    }
+    validate_every(&habit.schedule, habit.every)?;
     if let Some(goal) = body.goal {
         habit.goal = goal;
     }
-    validate_goal(&habit.kind, &habit.schedule, habit.goal)?;
+    validate_goal(&habit.kind, &habit.schedule, habit.every, habit.goal)?;
 
     if let Some(unit) = &body.unit {
         habit.unit = validate_unit(unit)?;
@@ -390,14 +411,15 @@ pub async fn patch(
 
     habit.updated_at = now();
     sqlx::query(
-        "UPDATE habits SET name = ?, description = ?, schedule = ?, weekdays = ?, goal = ?,
-                           position = ?, archived = ?, updated_at = ?, unit = ?, color = ?,
+        "UPDATE habits SET name = ?, description = ?, schedule = ?, every = ?, weekdays = ?,
+                           goal = ?, position = ?, archived = ?, updated_at = ?, unit = ?, color = ?,
                            category_id = ?, reminders = ?
          WHERE id = ?",
     )
     .bind(&habit.name)
     .bind(&habit.description)
     .bind(&habit.schedule)
+    .bind(habit.every)
     .bind(habit.weekdays)
     .bind(habit.goal)
     .bind(habit.position)

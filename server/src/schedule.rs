@@ -14,6 +14,106 @@ pub fn week_start_date(date: NaiveDate, week_start: i64) -> NaiveDate {
     date - Days::new((weekday - week_start).rem_euclid(7) as u64)
 }
 
+/// What a habit's goal is measured over.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Period {
+    Day,
+    /// This many weeks, in blocks counted from a fixed week.
+    Weeks(i64),
+    /// This many calendar months, in blocks counted from January: 3 is a
+    /// quarter, 12 a year.
+    Months(i64),
+}
+
+impl Period {
+    /// The period a schedule measures on. Only target schedules have `every`.
+    pub fn of(schedule: &str, every: i64) -> Self {
+        match schedule {
+            "weekly" => Self::Weeks(every),
+            "monthly" => Self::Months(every),
+            "yearly" => Self::Months(12 * every),
+            _ => Self::Day,
+        }
+    }
+
+    /// The first day of the period containing `date`.
+    pub fn start(self, date: NaiveDate, week_start: i64) -> NaiveDate {
+        match self {
+            Self::Day => date,
+            Self::Weeks(count) => {
+                // 1970-01-05 is a Monday; any fixed week would do.
+                let origin =
+                    week_start_date(NaiveDate::from_ymd_opt(1970, 1, 5).unwrap(), week_start);
+                let week = week_start_date(date, week_start);
+                let weeks = (week - origin).num_days() / 7;
+                week - Days::new(weeks.rem_euclid(count) as u64 * 7)
+            }
+            Self::Months(count) => {
+                let month = i64::from(date.year()) * 12 + i64::from(date.month0());
+                first_of_month(month - month.rem_euclid(count))
+            }
+        }
+    }
+
+    /// The last day of the period containing `date`.
+    pub fn end(self, date: NaiveDate, week_start: i64) -> NaiveDate {
+        let start = self.start(date, week_start);
+        match self {
+            Self::Day => start,
+            Self::Weeks(count) => start + Days::new(count as u64 * 7 - 1),
+            Self::Months(count) => {
+                let month = i64::from(start.year()) * 12 + i64::from(start.month0());
+                first_of_month(month + count) - Days::new(1)
+            }
+        }
+    }
+
+    /// The most days a yes/no habit can be asked for in one period.
+    fn max_days(self) -> i64 {
+        match self {
+            Self::Day => 1,
+            Self::Weeks(count) => 7 * count,
+            Self::Months(count) => 365 * count / 12,
+        }
+    }
+}
+
+/// The first day of a month numbered from year 0, January = 0.
+fn first_of_month(month: i64) -> NaiveDate {
+    NaiveDate::from_ymd_opt(month.div_euclid(12) as i32, month.rem_euclid(12) as u32 + 1, 1)
+        .expect("a month within chrono's range")
+}
+
+/// The most weeks, months or years one period can span.
+pub const MAX_EVERY: i64 = 52;
+
+/// The most days an `interval` habit can rest between two times.
+pub const MAX_INTERVAL: i64 = 365;
+
+pub fn is_target(schedule: &str) -> bool {
+    matches!(schedule, "weekly" | "monthly" | "yearly")
+}
+
+/// Checks how many weeks, months or years a target counts as one period, or
+/// how many days an interval lasts.
+pub fn validate_every(schedule: &str, every: i64) -> Result<(), ApiError> {
+    if schedule == "interval" {
+        if !(1..=MAX_INTERVAL).contains(&every) {
+            return Err(ApiError::validation("an interval is from 1 to 365 days"));
+        }
+        return Ok(());
+    }
+    if !(1..=MAX_EVERY).contains(&every) {
+        return Err(ApiError::validation("every must be a number from 1 to 52"));
+    }
+    if every != 1 && !is_target(schedule) {
+        return Err(ApiError::validation(
+            "every must be 1 unless the schedule is weekly, monthly, yearly or interval",
+        ));
+    }
+    Ok(())
+}
+
 /// Whether a habit is due on `date`. Only a `weekdays` habit is ever not due.
 pub fn is_due(weekdays: Option<i64>, date: NaiveDate) -> bool {
     match weekdays {
@@ -47,19 +147,19 @@ pub fn mask_to_weekdays(mask: i64) -> Vec<i64> {
 }
 
 /// Checks the kind, schedule and goal combination against the rules in section 4.
-pub fn validate_goal(kind: &str, schedule: &str, goal: i64) -> Result<(), ApiError> {
+pub fn validate_goal(kind: &str, schedule: &str, every: i64, goal: i64) -> Result<(), ApiError> {
     if goal < 1 {
         return Err(ApiError::validation("goal must be at least 1"));
     }
     if kind == "boolean" {
-        if schedule == "weekly" && goal > 7 {
+        if !is_target(schedule) && goal != 1 {
             return Err(ApiError::validation(
-                "a weekly boolean habit's goal is 1 to 7 days per week",
+                "a boolean habit's goal must be 1 unless it is weekly, monthly or yearly",
             ));
         }
-        if schedule != "weekly" && goal != 1 {
+        if goal > Period::of(schedule, every).max_days() {
             return Err(ApiError::validation(
-                "a boolean habit's goal must be 1 unless it is weekly",
+                "a boolean habit's goal is in days, and its period does not have that many",
             ));
         }
     }
@@ -148,13 +248,70 @@ mod tests {
 
     #[test]
     fn goal_rules() {
-        assert!(validate_goal("boolean", "daily", 1).is_ok());
-        assert!(validate_goal("boolean", "daily", 2).is_err());
-        assert!(validate_goal("boolean", "weekdays", 2).is_err());
-        assert!(validate_goal("boolean", "weekly", 7).is_ok());
-        assert!(validate_goal("boolean", "weekly", 8).is_err());
-        assert!(validate_goal("counter", "daily", 500).is_ok());
-        assert!(validate_goal("counter", "weekly", 0).is_err());
+        assert!(validate_goal("boolean", "daily", 1, 1).is_ok());
+        assert!(validate_goal("boolean", "daily", 1, 2).is_err());
+        assert!(validate_goal("boolean", "weekdays", 1, 2).is_err());
+        assert!(validate_goal("boolean", "weekly", 1, 7).is_ok());
+        assert!(validate_goal("boolean", "weekly", 1, 8).is_err());
+        assert!(validate_goal("boolean", "weekly", 2, 14).is_ok());
+        assert!(validate_goal("boolean", "monthly", 1, 30).is_ok());
+        assert!(validate_goal("boolean", "monthly", 1, 31).is_err());
+        assert!(validate_goal("boolean", "yearly", 1, 365).is_ok());
+        assert!(validate_goal("boolean", "yearly", 1, 366).is_err());
+        assert!(validate_goal("counter", "daily", 1, 500).is_ok());
+        assert!(validate_goal("counter", "weekly", 1, 0).is_err());
+    }
+
+    #[test]
+    fn every_is_only_for_targets() {
+        assert!(validate_every("daily", 1).is_ok());
+        assert!(validate_every("daily", 2).is_err());
+        assert!(validate_every("weekdays", 2).is_err());
+        assert!(validate_every("monthly", 3).is_ok());
+        assert!(validate_every("weekly", 0).is_err());
+        assert!(validate_every("yearly", 53).is_err());
+        assert!(validate_every("interval", 90).is_ok());
+        assert!(validate_every("interval", 366).is_err());
+    }
+
+    #[test]
+    fn periods_follow_the_calendar() {
+        let bounds = |period: Period, date: &str| {
+            (period.start(d(date), 1).to_string(), period.end(d(date), 1).to_string())
+        };
+        let pair = |start: &str, end: &str| (start.to_string(), end.to_string());
+        assert_eq!(bounds(Period::Day, "2026-10-07"), pair("2026-10-07", "2026-10-07"));
+        assert_eq!(bounds(Period::of("weekly", 1), "2026-10-07"), pair("2026-10-05", "2026-10-11"));
+        assert_eq!(
+            bounds(Period::of("monthly", 1), "2026-02-14"),
+            pair("2026-02-01", "2026-02-28")
+        );
+        assert_eq!(
+            bounds(Period::of("monthly", 1), "2028-02-29"),
+            pair("2028-02-01", "2028-02-29")
+        );
+        // Three months are a calendar quarter.
+        assert_eq!(
+            bounds(Period::of("monthly", 3), "2026-11-30"),
+            pair("2026-10-01", "2026-12-31")
+        );
+        assert_eq!(bounds(Period::of("yearly", 1), "2026-10-07"), pair("2026-01-01", "2026-12-31"));
+        assert_eq!(bounds(Period::of("yearly", 2), "2027-06-01"), pair("2026-01-01", "2027-12-31"));
+    }
+
+    #[test]
+    fn several_weeks_are_one_block() {
+        let period = Period::of("weekly", 2);
+        for week_start in 1..=7 {
+            let start = period.start(d("2026-10-07"), week_start);
+            assert_eq!(start, week_start_date(start, week_start));
+            assert_eq!(period.end(d("2026-10-07"), week_start), start + Days::new(13));
+            for offset in 0..14 {
+                assert_eq!(period.start(start + Days::new(offset), week_start), start);
+            }
+            assert_eq!(period.start(start + Days::new(14), week_start), start + Days::new(14));
+            assert_eq!(period.start(start - Days::new(1), week_start), start - Days::new(14));
+        }
     }
 
     #[test]

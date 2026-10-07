@@ -207,8 +207,8 @@ class WeekStrip extends StatelessWidget {
     Widget day(int i) {
       final value = habit.weekValues[i];
       final due = habit.weekdays?.contains(start.add(Duration(days: i)).weekday) ?? true;
-      // A weekly habit has no daily goal: any amount is a day that counted.
-      final met = habit.schedule == Schedule.weekly ? value > 0 : value >= habit.goal;
+      // A target has no daily goal: any amount is a day that counted.
+      final met = habit.schedule.isTarget ? value > 0 : value >= habit.goal;
       final Color fill;
       if (met) {
         fill = color;

@@ -7,7 +7,18 @@ import org.json.JSONObject
 
 /** JSON for the stored state and for the API. Field names follow the API. */
 
-private fun habitFromJson(json: JSONObject) = Habit(
+/**
+ * A target's running period. A cache stored before periods were sent has
+ * none; all targets were weekly then, so theirs is the cache's week.
+ */
+private fun periodFromJson(json: JSONObject, schedule: Schedule, weekStart: LocalDate): Period? = when {
+    !schedule.isTarget -> null
+    !json.isNull("period_start") && !json.isNull("period_end") ->
+        Period(LocalDate.parse(json.getString("period_start")), LocalDate.parse(json.getString("period_end")))
+    else -> Period(weekStart, weekStart.plusDays(6))
+}
+
+private fun habitFromJson(json: JSONObject, weekStart: LocalDate) = Habit(
     id = json.getString("id"),
     name = json.getString("name"),
     kind = Kind.valueOf(json.getString("kind").uppercase()),
@@ -27,6 +38,9 @@ private fun habitFromJson(json: JSONObject) = Habit(
             time?.let { Reminder(it, days) }
         }
     },
+    every = json.optInt("every", 1),
+    dueFrom = json.optString("due_from").takeIf { it.isNotEmpty() && !json.isNull("due_from") }?.let(LocalDate::parse),
+    period = periodFromJson(json, Schedule.valueOf(json.getString("schedule").uppercase()), weekStart),
 )
 
 private fun Habit.toJson() = JSONObject()
@@ -34,6 +48,10 @@ private fun Habit.toJson() = JSONObject()
     .put("name", name)
     .put("kind", kind.name.lowercase())
     .put("schedule", schedule.name.lowercase())
+    .put("every", every)
+    .put("due_from", dueFrom?.toString() ?: JSONObject.NULL)
+    .put("period_start", period?.start?.toString() ?: JSONObject.NULL)
+    .put("period_end", period?.end?.toString() ?: JSONObject.NULL)
     .put("weekdays", weekdays?.let(::JSONArray) ?: JSONObject.NULL)
     .put("goal", goal)
     .put("value", value)
@@ -58,11 +76,12 @@ fun cacheFromJson(text: String, fetchedAt: Long? = null): Cache {
     val json = JSONObject(text)
     val habits = json.getJSONArray("habits")
     val categories = json.optJSONArray("categories") ?: JSONArray()
+    val weekStart = LocalDate.parse(json.getString("week_start_date"))
     return Cache(
         date = LocalDate.parse(json.getString("date")),
-        weekStartDate = LocalDate.parse(json.getString("week_start_date")),
+        weekStartDate = weekStart,
         fetchedAt = fetchedAt ?: json.getLong("fetched_at"),
-        habits = List(habits.length()) { habitFromJson(habits.getJSONObject(it)) },
+        habits = List(habits.length()) { habitFromJson(habits.getJSONObject(it), weekStart) },
         categories = List(categories.length()) {
             val category = categories.getJSONObject(it)
             Category(

@@ -8,7 +8,7 @@ import '../state/data.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 
-/// `Every day`, `Mon, Wed, Fri`, `3 days a week`, ...
+/// `Every day`, `Mon, Wed, Fri`, `3 days a week`, `2 days every 3 months`, ...
 String describeSchedule(Habit habit) {
   final counter = habit.kind == HabitKind.counter;
   final amount = habit.unit.isEmpty ? '${habit.goal}' : '${habit.goal} ${habit.unit}';
@@ -16,7 +16,11 @@ String describeSchedule(Habit habit) {
     Schedule.daily => counter ? '$amount every day' : 'Every day',
     Schedule.weekdays =>
       '${counter ? '$amount on ' : ''}${habit.weekdays!.map((d) => weekdayShort[d - 1]).join(', ')}',
-    Schedule.weekly => counter ? '$amount a week' : '${habit.goal} days a week',
+    Schedule.interval =>
+      counter ? '$amount every ${habit.every} days' : 'Every ${habit.every} days',
+    Schedule.weekly || Schedule.monthly || Schedule.yearly =>
+      '${counter ? amount : '${habit.goal} day${habit.goal == 1 ? '' : 's'}'} '
+          '${periodRate(habit.schedule, habit.every)}',
   };
 }
 
