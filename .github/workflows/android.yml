@@ -16,11 +16,6 @@ permissions:
   contents: write
 
 env:
-  # 1.0.<run number>: unique and always increasing, which Android needs to
-  # accept one build as an update of another. The offset continues the
-  # numbering the Forgejo pipeline reached (1.0.36), so Android does not see
-  # these releases as downgrades.
-  VERSION: 1.0.${{ github.run_number + 36 }}
   NIX_CONFIG: |
     build-users-group =
     sandbox = false
@@ -31,6 +26,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+
+      # 1.0.<run number>: unique and always increasing, which Android needs to
+      # accept one build as an update of another. The 36 continues the numbering
+      # the Forgejo pipeline reached, so these releases are not downgrades.
+      - name: Work out the version
+        run: |
+          number=$(( GITHUB_RUN_NUMBER + 36 ))
+          echo "VERSION=1.0.$number" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=$number" >> "$GITHUB_ENV"
 
       # The runner image ships its own Android SDK, .NET and CodeQL databases.
       # None of them are used here, and the Nix build needs the space more.
@@ -63,7 +67,6 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          BUILD_NUMBER: ${{ github.run_number + 36 }}
         run: |
           nix develop --command bash -c '
             set -euo pipefail
