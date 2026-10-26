@@ -563,7 +563,7 @@ The `Dockerfile` builds an image with the web app embedded; it expects `flutter 
 Two GitHub workflows run on pushes to `main`, each only when something it depends on changed. Both run the tests first and stop if any fail.
 
 * **Image**: analyses and tests the app, lints and tests the server, builds the web app and the image, and pushes it to GHCR as `latest` and by commit. Deploying is left to whoever runs the container.
-* **Android**: analyses and tests the app, builds the signed APK (for 64-bit ARM only, which keeps it near 19 MB instead of three times that), runs the Kotlin tests, and publishes the APK as release `v1.0.<run number>`. The version code rises with the run number, so each release installs over the last.
+* **Android**: analyses and tests the app, builds the signed APK (for 64-bit ARM only, which keeps it near 19 MB instead of three times that), runs the Kotlin tests, and publishes the APK as release `1.0.<run number>`. The version code rises with the run number, so each release installs over the last.
 
 ## 12. Testing
 
