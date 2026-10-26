@@ -76,8 +76,8 @@ habit-tracker/
   SPEC.md  PROGRESS.md  README.md
   Dockerfile            habitd with the web app embedded
   flake.nix             the development environment
-  scripts/              publish-image, publish-release, make-icons
-  .forgejo/workflows/   image.yml, android.yml
+  scripts/              publish-image, make-icons
+  .github/workflows/    image.yml, android.yml
   server/               crate `habitd`
     migrations/         SQLx migrations, embedded and run at startup
     src/
@@ -560,10 +560,10 @@ The `Dockerfile` builds an image with the web app embedded; it expects `flutter 
 
 ### Continuous integration
 
-Two Forgejo workflows run on pushes to `main`, each only when something it depends on changed. Both run the tests first and stop if any fail.
+Two GitHub workflows run on pushes to `main`, each only when something it depends on changed. Both run the tests first and stop if any fail.
 
-* **Image**: analyses and tests the app, lints and tests the server, builds the web app and the image, pushes it as `latest` and by commit, recreates the running container from it, and keeps the newest 8 image versions.
-* **Android**: analyses and tests the app, builds the signed APK (for 64-bit ARM only, which keeps it near 19 MB instead of three times that), runs the Kotlin tests, and publishes the APK as release `v1.0.<run number>`, keeping the newest 10. The version code rises with the run number, so each release installs over the last.
+* **Image**: analyses and tests the app, lints and tests the server, builds the web app and the image, and pushes it to GHCR as `latest` and by commit. Deploying is left to whoever runs the container.
+* **Android**: analyses and tests the app, builds the signed APK (for 64-bit ARM only, which keeps it near 19 MB instead of three times that), runs the Kotlin tests, and publishes the APK as release `v1.0.<run number>`. The version code rises with the run number, so each release installs over the last.
 
 ## 12. Testing
 

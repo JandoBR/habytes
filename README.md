@@ -100,9 +100,9 @@ services:
       - "8080:8080"
 ```
 
-`scripts/publish-image` builds and pushes the image. The Forgejo workflows in
-`.forgejo/workflows/` test, build, push and deploy on every push to `main`, and
-build a signed APK.
+`scripts/publish-image` builds and pushes the image locally. The GitHub
+workflows in `.github/workflows/` run the tests, build and push the image to
+GHCR, and build a signed APK on every push to `main`.
 
 Back up by copying the database while the server is stopped, or with
 `sqlite3 habits.db ".backup backup.db"` while it runs.
@@ -116,8 +116,8 @@ phone since about 2017); later releases install over it and keep
 your sign-in and widget.
 
 To be told about new releases, add the repository's address to
-[Obtainium](https://github.com/ImranR98/Obtainium) on the phone (it knows
-Forgejo). It then offers each new release as an update.
+[Obtainium](https://github.com/ImranR98/Obtainium) on the phone and point it at
+this repository. It then offers each new release as an update.
 
 Releases are signed with a real key when the signing secrets are configured (see
 `.github/workflows/android.yml`). Without them the build falls back to a throwaway

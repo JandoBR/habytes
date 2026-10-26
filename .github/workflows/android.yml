@@ -80,7 +80,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$VERSION" \
-            app/build/app/outputs/flutter-apk/app-release.apk \
+          cp app/build/app/outputs/flutter-apk/app-release.apk "habytes-$VERSION.apk"
+          gh release create "$VERSION" "habytes-$VERSION.apk" \
             --title "$VERSION" \
             --notes "Signed APK built from ${GITHUB_SHA}."
