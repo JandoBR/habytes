@@ -66,10 +66,9 @@ cd ../server && cargo run -- config.toml
 The server embeds `app/build/web`, so build the web app first. Register
 `{public_url}/auth/callback` as the redirect URI at your provider.
 
-The general know-how behind this setup (building for Android on NixOS, the
-CI runner, deploying to the server, signing) lives in the
-[Dev-kit](https://forgejo.example.com/Jando/Dev-kit) repository, with templates
-for starting another project the same way.
+The general know-how behind this setup — building for Android on NixOS, the CI
+runner, deploying the container, signing the APK — is written down separately,
+with templates for starting another project the same way.
 
 `PROGRESS.md` has the details: how the parts fit together, the decisions made
 along the way, and what has and has not been tried on a real phone.
@@ -116,8 +115,9 @@ To be told about new releases, add the repository's address to
 Forgejo). It then offers each new release as an update.
 
 All releases are signed with the same key. An APK built without that key (a
-debug build, say) will not install over a released one, and the other way round. The Dev-kit's `docs/android-signing.md`
-explains signing keys; where this app's key is kept is in `PROGRESS.md`.
+debug build, say) will not install over a released one, and the other way round.
+How signing keys work is written up separately; where this app's key is kept is in
+`PROGRESS.md`.
 
 ## Automating
 

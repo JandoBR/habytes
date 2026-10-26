@@ -63,14 +63,14 @@ async fn web_login_creates_a_user_and_a_session() {
     let app = TestApp::with_issuer(&issuer.url).await;
 
     let (state, nonce) = begin(&app, &issuer, "/auth/login?redirect=/history").await;
-    issuer.will_return("sub-1", Some("jando"), Some("jando@example.com"), &nonce);
+    issuer.will_return("sub-1", Some("demo"), Some("demo@example.com"), &nonce);
     let response = get(&app, &format!("/auth/callback?code=abc&state={state}")).await;
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
     assert_eq!(location(&response), "/history");
 
     let (status, user) = me(&app, &session_from(&response)).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(user["username"], "jando");
+    assert_eq!(user["username"], "demo");
     assert_eq!(user["timezone"], "UTC");
 
     // The flow row is gone, so the callback cannot be replayed.
@@ -92,8 +92,8 @@ async fn logging_in_again_reuses_the_user_and_refreshes_the_username() {
     let mut ids = Vec::new();
     // preferred_username, then email, then sub.
     let cases = [
-        (Some("jando"), Some("j@example.com"), "jando"),
-        (None, Some("j@example.com"), "j@example.com"),
+        (Some("demo"), Some("d@example.com"), "demo"),
+        (None, Some("d@example.com"), "d@example.com"),
         (None, None, "sub-1"),
     ];
     for (username, email, expected) in cases {
@@ -115,14 +115,14 @@ async fn id_tokens_that_do_not_verify_are_rejected() {
 
     // Wrong nonce.
     let (state, _) = begin(&app, &issuer, "/auth/login").await;
-    issuer.will_return("sub-1", Some("jando"), None, "some-other-nonce");
+    issuer.will_return("sub-1", Some("demo"), None, "some-other-nonce");
     let response = get(&app, &format!("/auth/callback?code=abc&state={state}")).await;
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     assert!(response.headers().get(header::SET_COOKIE).is_none());
 
     // Wrong audience.
     let (state, nonce) = begin(&app, &issuer, "/auth/login").await;
-    issuer.will_return("sub-1", Some("jando"), None, &nonce);
+    issuer.will_return("sub-1", Some("demo"), None, &nonce);
     issuer.identity.lock().unwrap().as_mut().unwrap().audience = "someone-else".into();
     let response = get(&app, &format!("/auth/callback?code=abc&state={state}")).await;
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
@@ -143,7 +143,7 @@ async fn callbacks_need_a_known_unexpired_state() {
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
     let (state, nonce) = begin(&app, &issuer, "/auth/login").await;
-    issuer.will_return("sub-1", Some("jando"), None, &nonce);
+    issuer.will_return("sub-1", Some("demo"), None, &nonce);
     sqlx::query("UPDATE login_flows SET expires_at = ?")
         .bind(now() - 1)
         .execute(&app.state.db)
@@ -187,7 +187,7 @@ async fn exchange(app: &TestApp, body: Value) -> (StatusCode, Value) {
 async fn app_code(app: &TestApp, issuer: &MockIssuer, verifier: &str) -> String {
     let path = format!("/auth/login?client=app&code_challenge={}", pkce_s256(verifier));
     let (state, nonce) = begin(app, issuer, &path).await;
-    issuer.will_return("sub-1", Some("jando"), None, &nonce);
+    issuer.will_return("sub-1", Some("demo"), None, &nonce);
     let response = get(app, &format!("/auth/callback?code=abc&state={state}")).await;
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
     assert!(response.headers().get(header::SET_COOKIE).is_none());
@@ -206,7 +206,7 @@ async fn app_login_hands_over_a_device_token() {
     let body = json!({ "code": code, "code_verifier": verifier, "device_name": "Pixel" });
     let (status, response) = exchange(&app, body.clone()).await;
     assert_eq!(status, StatusCode::OK, "{response}");
-    assert_eq!(response["user"]["username"], "jando");
+    assert_eq!(response["user"]["username"], "demo");
     let token = response["token"].as_str().unwrap();
 
     let (status, tokens) = app.get(token, "/api/v1/tokens").await;
@@ -274,7 +274,7 @@ async fn web_login(
     previous: Option<&str>,
 ) -> String {
     let (state, nonce) = begin(app, issuer, "/auth/login").await;
-    issuer.will_return("sub-1", Some("jando"), None, &nonce);
+    issuer.will_return("sub-1", Some("demo"), None, &nonce);
     let mut request = Request::get(format!("/auth/callback?code=abc&state={state}"))
         .header(header::USER_AGENT, user_agent);
     if let Some(session) = previous {

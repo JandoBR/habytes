@@ -32,7 +32,7 @@ use uuid::Uuid;
 
 pub const PUBLIC_URL: &str = "https://habits.test";
 pub const CLIENT_ID: &str = "habitd-test";
-const TEST_KEY: &str = include_str!("test_key.pem");
+const TEST_KEY: &str = include_str!("TEST-ONLY-key.pem");
 
 /// What the mock provider will put in the next ID token.
 #[derive(Clone)]

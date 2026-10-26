@@ -5,8 +5,8 @@ tried, where things live, and why some of it is the way it is.
 
 ## State
 
-Everything in `SPEC.md` is built, deployed at `https://habits.example.com`, and
-covered by tests that run in CI before anything is deployed.
+Everything in `SPEC.md` is built, deployed on a private network, and covered by
+tests that run in CI before anything is deployed.
 
 ### Tried on a real phone
 
@@ -85,9 +85,9 @@ a run of the server over a copy of the live database.
 ## Working on it
 
 `README.md` has the everyday commands. The whole account of building for
-Android on NixOS, the runner, deploying and signing is in the Dev-kit
-repository (`forgejo.example.com/Jando/Dev-kit`), which also has the generic
-form of this project's workflows and scripts. In short:
+Android on NixOS, the runner, deploying and signing is written down
+separately, together with the generic form of this project's workflows and
+scripts. In short:
 
 * Use `app/android/nix-gradlew` instead of `./gradlew` when calling Gradle
   directly; it passes the options `flutter build` passes on NixOS.
@@ -148,8 +148,8 @@ form of this project's workflows and scripts. In short:
   knowing anything about anchors or the first day of the week.
 * **Migration `0004` rebuilds `habits`** because SQLite cannot change a
   CHECK. With foreign keys on, dropping the table deletes its entries, so the
-  migration sets them aside and puts them back; the Dev-kit has the pattern
-  (`docs/sqlite-migrations.md`).
+  migration sets them aside and puts them back; the same pattern is written up
+  in the internal notes.
 * **Folding is stored on the server**, so the web app, the phone and the
   widget agree, and the widget needs no fold action of its own.
 * **Signing in again replaces the old credential.** Reinstalling the app used
