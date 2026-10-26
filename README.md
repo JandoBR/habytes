@@ -2,6 +2,11 @@
 
 A self-hosted habit tracker built around a home-screen widget.
 
+<p align="center">
+  <img src="docs/screenshots/today.jpg" width="270" alt="Today view: habits grouped by category, with streaks">
+  <img src="docs/screenshots/stats.jpg" width="270" alt="One habit: current and best streak, completion rates and a twelve-week heatmap">
+</p>
+
 * **`habitd`** — one Rust binary with a SQLite file. It serves the JSON API,
   per-habit webhooks and the web app.
 * **Web app** — manage habits, log them, and look back: streaks, a year-long
