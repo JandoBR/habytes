@@ -119,10 +119,10 @@ To be told about new releases, add the repository's address to
 [Obtainium](https://github.com/ImranR98/Obtainium) on the phone (it knows
 Forgejo). It then offers each new release as an update.
 
-All releases are signed with the same key. An APK built without that key (a
-debug build, say) will not install over a released one, and the other way round.
-How signing keys work is written up separately; where this app's key is kept is in
-`PROGRESS.md`.
+Releases are signed with a real key when the signing secrets are configured (see
+`.github/workflows/android.yml`). Without them the build falls back to a throwaway
+debug key, which installs fine on a fresh phone but cannot update an installed
+release. An APK built with a different key never installs over one already there.
 
 ## Automating
 
